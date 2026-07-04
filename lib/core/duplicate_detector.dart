@@ -4,7 +4,6 @@ import 'dart:math' as math;
 import 'package:fgphoto/core/analysis/analysis_controller.dart';
 import 'package:image/image.dart' as img;
 
-import 'analysis/analysis_controller.dart';
 import '../ui/models/duplicate_group.dart';
 import '../ui/models/media_item.dart';
 

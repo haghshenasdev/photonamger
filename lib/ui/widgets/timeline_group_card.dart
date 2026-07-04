@@ -1,9 +1,10 @@
-import 'package:fgphoto/core/channel/channel_read_engine.dart';
+import 'package:fgphoto/core/channel/category_predictor.dart';
+import 'package:fgphoto/core/channel/chanel_post.dart';
+import 'package:fgphoto/core/channel/read_chanel.dart';
 import 'package:fgphoto/core/utils/persian_date.dart';
 import 'package:fgphoto/ui/models/timeline_group.dart';
-import 'package:fgphoto/ui/widgets/channel_read_dialog.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:fgphoto/core/channel/channel_title_matcher.dart';
+import 'package:flutter/services.dart';
 
 import 'persian_date_field.dart';
 import 'time_field.dart';
@@ -43,10 +44,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
   final Set<int> expandedGroups = {};
   final Set<int> selectedForMerge = {};
 
-  final ChannelReadEngine channelEngine = ChannelReadEngine();
-
   bool readingChannel = false;
-  final ChannelTitleMatcher titleMatcher = const ChannelTitleMatcher();
 
   double channelProgress = 0;
 
@@ -130,8 +128,41 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                 FilledButton(
                   child: const Text("پیشنهاد عنوان"),
 
-                  onPressed: () {
-                    readTitles();
+                  onPressed: () async {
+                    final rc = ReadChannelService(
+                      predictor: CategoryPredictor(),
+                    );
+                    final posts = rc.read();
+                    final remainingPosts = List<ChannelPost>.from(await posts);
+
+                    // مرتب‌سازی بر اساس زمان
+                    remainingPosts.sort((a, b) => a.date.compareTo(b.date));
+
+                    for (final group in widget.groups) {
+                      ChannelPost? bestPost;
+                      Duration? bestDistance;
+
+                      for (final post in remainingPosts) {
+                        // پست قبل از اولین عکس است => غیرمجاز
+                        if (post.date.isBefore(group.start)) {
+                          continue;
+                        }
+
+                        final distance = post.date.difference(group.end).abs();
+
+                        if (bestDistance == null || distance < bestDistance) {
+                          bestDistance = distance;
+                          bestPost = post;
+                        }
+                      }
+
+                      if (bestPost != null) {
+                        group.title = bestPost.title;
+                        remainingPosts.remove(bestPost);
+                      }
+                    }
+
+                    setState(() {});
                   },
                 ),
               ],
@@ -245,6 +276,13 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                     children: [
                                       /// TITLE
                                       TextBox(
+                                        maxLines: null,
+                                        minLines: null,
+                                        inputFormatters: [
+                                          FilteringTextInputFormatter.deny(
+                                            RegExp(r'[\n\r]'),
+                                          ),
+                                        ],
                                         controller: _controllerFor(
                                           index,
                                           group.title,
@@ -358,73 +396,5 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
         ],
       ),
     );
-  }
-
-  Future<void> readTitles() async {
-    setState(() {
-      readingChannel = true;
-      channelProgress = 0;
-      channelStatus = "در حال اتصال به کانال...";
-      channelCurrent = 0;
-      channelTotal = 0;
-    });
-
-    StateSetter? dialogSetState;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) {
-        return StatefulBuilder(
-          builder: (context, setStateDialog) {
-            dialogSetState = setStateDialog;
-
-            return ChannelReadDialog(
-              progress: channelProgress,
-              status: channelStatus,
-              current: channelCurrent,
-              total: channelTotal,
-              onCancel: () {
-                channelEngine.cancel();
-
-                Navigator.of(context, rootNavigator: true).pop();
-              },
-            );
-          },
-        );
-      },
-    );
-
-    try {
-      final oldest = widget.groups
-          .map((e) => e.start)
-          .reduce((a, b) => a.isBefore(b) ? a : b);
-      final posts = await channelEngine.read(
-        channel: "Hamase4",
-        oldestDate: oldest,
-        onProgress: (current, total, status) {
-          channelCurrent = current;
-          channelTotal = total;
-          channelStatus = status;
-          channelProgress = total == 0 ? 0 : current / total;
-
-          if (dialogSetState != null) {
-            dialogSetState!(() {});
-          }
-        },
-      );
-
-      titleMatcher.applyTitles(widget.groups, posts);
-    } finally {
-      if (mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
-      }
-
-      if (mounted) {
-        setState(() {
-          readingChannel = false;
-        });
-      }
-    }
   }
 }

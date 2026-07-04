@@ -1,5 +1,3 @@
-import 'package:fgphoto/core/channel/channel_post.dart';
-
 import 'media_item.dart';
 
 class TimelineGroup {
@@ -10,8 +8,6 @@ class TimelineGroup {
   DateTime end;
 
   List<MediaItem> items;
-
-  List<ChannelPost> suggestions;
 
   /// آیا کاربر این گروه را ویرایش کرده؟
   bool edited;
@@ -28,6 +24,5 @@ class TimelineGroup {
     this.edited = false,
 
     this.merged = false,
-    List<ChannelPost>? suggestions,
-  }): suggestions = suggestions ?? [];
+  });
 }
