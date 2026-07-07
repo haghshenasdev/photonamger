@@ -11,40 +11,55 @@ class ReadChannelService {
   final CategoryPredictor predictor;
 
   /// از دیتابیس یا تنظیمات بخوان
-  int lastReadId = 9630;
+  // int lastReadId = 9555;
 
-  Future<List<ChannelPost>> read() async {
+  Future<List<ChannelPost>> read({required DateTime oldestDate}) async {
     try {
       int? currentId;
 
       final Map<int, List<String>> newPosts = {};
 
-      bool foundNew;
+      bool reachedOldest = false;
 
-      do {
+      while (!reachedOldest) {
         final url = currentId == null
             ? "https://eitaa.com/Hamase4"
             : "https://eitaa.com/Hamase4?before=$currentId";
 
         final result = await dom(url);
 
+        if (result.isEmpty) {
+          break;
+        }
+
         final ids = result.keys.toList()..sort((a, b) => b.compareTo(a));
 
-        foundNew = false;
+        DateTime oldestPostInPage = DateTime.now();
 
         for (final id in ids) {
-          if (id <= lastReadId) {
-            continue;
+          final post = result[id]!;
+
+          final date = DateTime.parse(post[1]);
+
+          // قدیمی‌ترین تاریخ این صفحه
+          if (date.isBefore(oldestPostInPage)) {
+            oldestPostInPage = date;
           }
 
-          foundNew = true;
-          newPosts[id] = result[id]!;
+          // فقط پست‌هایی که در بازه زمانی مورد نیاز هستند
+          if (!date.isBefore(oldestDate)) {
+            newPosts[id] = post;
+          }
         }
 
-        if (ids.isNotEmpty) {
-          currentId = ids.last;
+        // اگر به تاریخ موردنظر رسیدیم دیگر ادامه نده
+        if (!oldestPostInPage.isAfter(oldestDate)) {
+          reachedOldest = true;
         }
-      } while (foundNew);
+
+        // صفحه بعد
+        currentId = ids.last;
+      }
 
       final filtered = removeExactDuplicateTitlesKeepHigherId(newPosts);
 
@@ -63,30 +78,13 @@ class ReadChannelService {
         final cats = await predictor.predictWithCity(title);
 
         if (cats != null && cats.categories.isNotEmpty) {
-          //-------------------------
-          // این قسمت همان Task::create است
-          //-------------------------
-
           posts.add(
             ChannelPost(title: predictor.cleanTitle(title), date: date, id: id),
           );
 
           print(predictor.cleanTitle(title));
-
           print(date);
-
-          //-------------------------
-          // اینجا API یا SQLite خودت را صدا می‌زنی
-          //-------------------------
         }
-      }
-
-      if (sortedIds.isNotEmpty) {
-        lastReadId = sortedIds.last;
-
-        //---------------------
-        // save lastReadId
-        //---------------------
       }
 
       return posts;

@@ -132,7 +132,11 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                     final rc = ReadChannelService(
                       predictor: CategoryPredictor(),
                     );
-                    final posts = rc.read();
+
+                    final oldestDate = widget.groups
+                        .map((e) => e.start)
+                        .reduce((a, b) => a.isBefore(b) ? a : b);
+                    final posts = rc.read(oldestDate: oldestDate);
                     final remainingPosts = List<ChannelPost>.from(await posts);
 
                     // مرتب‌سازی بر اساس زمان

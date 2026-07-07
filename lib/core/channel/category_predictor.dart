@@ -107,6 +107,9 @@ class CategoryPredictor {
     'aparatcomhamasesazanir',
     'wwwhamasesazanir',
     'bleirhamase4',
+    'هماکنون',
+    'هم اکنون',
+    'درحال برگزاری است',
   ];
 
   final List<String> stopWords = [

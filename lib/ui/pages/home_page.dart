@@ -1,7 +1,11 @@
+import 'dart:io';
+
 import 'package:fgphoto/core/analysis/analysis_progress.dart';
+import 'package:fgphoto/core/analysis/analysis_stage.dart';
 import 'package:fgphoto/core/folder_service.dart';
 import 'package:fgphoto/core/media_scanner.dart';
 import 'package:fgphoto/core/timeline_builder.dart';
+import 'package:fgphoto/core/utils/persian_date.dart';
 import 'package:fgphoto/ui/models/duplicate_group.dart';
 import 'package:fgphoto/ui/models/girid_item.dart';
 import 'package:fgphoto/ui/models/media_item.dart';
@@ -18,6 +22,7 @@ import 'package:fgphoto/core/analysis/analysis_engine.dart';
 import 'package:fgphoto/core/analysis/blur_detector.dart';
 import 'package:fgphoto/core/analysis/best_photo_selector.dart';
 import 'package:fgphoto/core/analysis/quality_scorer.dart';
+import 'package:path/path.dart' as p;
 
 import 'package:fgphoto/core/analysis/analysis_controller.dart';
 
@@ -118,7 +123,98 @@ class _HomePageState extends State<HomePage> {
             ),
 
             ApplyBar(
-              onApply: () {},
+              onApply: () async {
+                // پیدا کردن عکس منتخب هر گروه تکراری
+                final selectedDuplicateFiles = <String>{};
+
+                // پیدا کردن تمام عکس های موجود در گروه های تکراری
+                final duplicateFiles = <String>{};
+
+                final outputFolder = await FolderService.pickFolder();
+
+                if (outputFolder == null) {
+                  return;
+                }
+
+                for (final group in duplicateGroups) {
+                  selectedDuplicateFiles.add(group.primary.path);
+
+                  for (final item in group.items) {
+                    duplicateFiles.add(item.path);
+                  }
+                }
+
+                // تعداد کل فایل هایی که قرار است منتقل شوند
+                int total = 0;
+
+                for (final timeline in groups) {
+                  for (final item in timeline.items) {
+                    if (duplicateFiles.contains(item.path)) {
+                      if (selectedDuplicateFiles.contains(item.path)) {
+                        total++;
+                      }
+                    } else {
+                      if (item.isSelected) {
+                        total++;
+                      }
+                    }
+                  }
+                }
+
+                int current = 0;
+
+                // انتقال فایل ها
+                for (final timeline in groups) {
+                  final folder = Directory(
+                    "${outputFolder}/${timeline.title} - ${PersianDate.formatDate(timeline.start)}",
+                  );
+
+                  await folder.create(recursive: true);
+
+                  for (final item in timeline.items) {
+                    // اگر عضو گروه تکراری است ولی منتخب نیست
+                    if (duplicateFiles.contains(item.path)) {
+                      if (!selectedDuplicateFiles.contains(item.path)) {
+                        continue;
+                      }
+                    } else {
+                      if (!item.isSelected) {
+                        continue;
+                      }
+                    }
+
+                    final source = File(item.path);
+
+                    if (!await source.exists()) {
+                      continue;
+                    }
+
+                    final destination = p.join(folder.path, item.fileName);
+
+                    await source.rename(destination);
+
+                    current++;
+
+                    setState(() {
+                      progress = AnalysisProgress(
+                        stage: AnalysisStage.finished,
+                        current: current,
+                        total: total,
+                        message: "در حال انتقال ${item.fileName}",
+                      );
+                    });
+                  }
+                }
+
+                setState(() {
+                  progress = AnalysisProgress(
+                    stage: AnalysisStage.finished,
+                    current: total,
+                    total: total,
+                    message: "انتقال فایل‌ها پایان یافت.",
+                  );
+                });
+              },
 
               mediaItems_length: mediaItems.length,
 

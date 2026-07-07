@@ -208,8 +208,8 @@ class AnalysisEngine {
       );
 
       await _findDuplicates(onProgress);
-      await _detectBlur(onProgress);
-      await _detectFaces(onProgress);
+      // await _detectBlur(onProgress);
+      // await _detectFaces(onProgress);
       await _scorePhotos(onProgress);
       await _selectBestPhotos(onProgress);
 
@@ -309,9 +309,7 @@ class AnalysisEngine {
     bestPhotoSelector.sortDuplicates(duplicateGroups);
 
     bestPhotoSelector.selectDuplicateMasters(duplicateGroups);
-    bestPhotoSelector.selectTimelinePhotos(
-    mediaItems,
-);
+    bestPhotoSelector.selectTimelinePhotos(mediaItems);
 
     _updateProgress(
       AnalysisStage.bestPhoto,
