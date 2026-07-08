@@ -3,6 +3,7 @@ import 'package:fgphoto/core/channel/chanel_post.dart';
 import 'package:fgphoto/core/channel/read_chanel.dart';
 import 'package:fgphoto/core/utils/persian_date.dart';
 import 'package:fgphoto/ui/models/timeline_group.dart';
+import 'package:fgphoto/ui/widgets/title_select_dialog.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 
@@ -53,6 +54,8 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
   int channelCurrent = 0;
 
   int channelTotal = 0;
+
+  final List<String> suggestedTitles = [];
 
   final Map<int, TextEditingController> _controllers = {};
 
@@ -142,6 +145,8 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                     // مرتب‌سازی بر اساس زمان
                     remainingPosts.sort((a, b) => a.date.compareTo(b.date));
 
+                    suggestedTitles.clear();
+
                     for (final group in widget.groups) {
                       ChannelPost? bestPost;
                       Duration? bestDistance;
@@ -162,6 +167,11 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
 
                       if (bestPost != null) {
                         group.title = bestPost.title;
+
+                        if (!suggestedTitles.contains(bestPost.title)) {
+                          suggestedTitles.add(bestPost.title);
+                        }
+
                         remainingPosts.remove(bestPost);
                       }
                     }
@@ -279,25 +289,65 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                         CrossAxisAlignment.start,
                                     children: [
                                       /// TITLE
-                                      TextBox(
-                                        maxLines: null,
-                                        minLines: null,
-                                        inputFormatters: [
-                                          FilteringTextInputFormatter.deny(
-                                            RegExp(r'[\n\r]'),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: TextBox(
+                                              maxLines: null,
+                                              minLines: null,
+
+                                              inputFormatters: [
+                                                FilteringTextInputFormatter.deny(
+                                                  RegExp(r'[\n\r]'),
+                                                ),
+                                              ],
+
+                                              controller: _controllerFor(
+                                                index,
+                                                group.title,
+                                              ),
+
+                                              onChanged: (value) {
+                                                setState(() {
+                                                  group.title = value;
+                                                });
+
+                                                _notifyUpdate(group);
+                                              },
+                                            ),
+                                          ),
+
+                                          IconButton(
+                                            icon: const Icon(FluentIcons.more),
+
+                                            onPressed: () async {
+                                              final result =
+                                                  await showDialog<String>(
+                                                    context: context,
+
+                                                    builder: (_) {
+                                                      return TitleSelectDialog(
+                                                        titles: suggestedTitles,
+                                                        current: group.title,
+                                                      );
+                                                    },
+                                                  );
+
+                                              if (result != null) {
+                                                setState(() {
+                                                  group.title = result;
+
+                                                  _controllerFor(
+                                                    index,
+                                                    group.title,
+                                                  ).text = result;
+                                                });
+
+                                                _notifyUpdate(group);
+                                              }
+                                            },
                                           ),
                                         ],
-                                        controller: _controllerFor(
-                                          index,
-                                          group.title,
-                                        ),
-                                        onChanged: (value) {
-                                          setState(() {
-                                            group.title = value;
-                                          });
-
-                                          _notifyUpdate(group);
-                                        },
                                       ),
 
                                       const SizedBox(height: 10),
