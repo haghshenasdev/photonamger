@@ -148,6 +148,8 @@ class AnalysisEngine {
   }
 
   Future<void> _findDuplicates(AnalysisCallback? callback) async {
+
+    
     duplicateGroups = await duplicateDetector.findDuplicates(
       mediaItems,
       controller: controller,

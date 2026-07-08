@@ -6,11 +6,14 @@ import 'package:fgphoto/core/folder_service.dart';
 import 'package:fgphoto/core/media_scanner.dart';
 import 'package:fgphoto/core/timeline_builder.dart';
 import 'package:fgphoto/core/utils/persian_date.dart';
+import 'package:fgphoto/ui/dialogs/transfer_dialog.dart';
+import 'package:fgphoto/ui/models/apply_settings.dart';
 import 'package:fgphoto/ui/models/duplicate_group.dart';
 import 'package:fgphoto/ui/models/girid_item.dart';
 import 'package:fgphoto/ui/models/media_item.dart';
 import 'package:fgphoto/ui/models/timeline_group.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:fgphoto/core/apply/transfer_service.dart';
 
 import '../widgets/folder_selector.dart';
 import '../widgets/timeline_group_card.dart';
@@ -23,6 +26,7 @@ import 'package:fgphoto/core/analysis/blur_detector.dart';
 import 'package:fgphoto/core/analysis/best_photo_selector.dart';
 import 'package:fgphoto/core/analysis/quality_scorer.dart';
 import 'package:path/path.dart' as p;
+import 'package:fgphoto/core/apply/folder_builder.dart';
 
 import 'package:fgphoto/core/analysis/analysis_controller.dart';
 
@@ -124,96 +128,37 @@ class _HomePageState extends State<HomePage> {
 
             ApplyBar(
               onApply: () async {
-                // پیدا کردن عکس منتخب هر گروه تکراری
-                final selectedDuplicateFiles = <String>{};
+                final ApplySettings? settings = await showDialog<ApplySettings>(
+                  context: context,
+                  builder: (_) => TransferDialog(
+                    groupCount: groups.length,
+                    selectedFiles: totalSelectedFiles,
+                    totalFiles: mediaItems.length,
+                  ),
+                );
 
-                // پیدا کردن تمام عکس های موجود در گروه های تکراری
-                final duplicateFiles = <String>{};
-
-                final outputFolder = await FolderService.pickFolder();
-
-                if (outputFolder == null) {
+                if (settings == null) {
                   return;
                 }
 
-                for (final group in duplicateGroups) {
-                  selectedDuplicateFiles.add(group.primary.path);
+                final transferService = TransferService();
 
-                  for (final item in group.items) {
-                    duplicateFiles.add(item.path);
-                  }
-                }
+                await transferService.execute(
+                  groups: groups,
+                  duplicateGroups: duplicateGroups,
+                  settings: settings,
 
-                // تعداد کل فایل هایی که قرار است منتقل شوند
-                int total = 0;
-
-                for (final timeline in groups) {
-                  for (final item in timeline.items) {
-                    if (duplicateFiles.contains(item.path)) {
-                      if (selectedDuplicateFiles.contains(item.path)) {
-                        total++;
-                      }
-                    } else {
-                      if (item.isSelected) {
-                        total++;
-                      }
-                    }
-                  }
-                }
-
-                int current = 0;
-
-                // انتقال فایل ها
-                for (final timeline in groups) {
-                  final folder = Directory(
-                    "${outputFolder}/${timeline.title} - ${PersianDate.formatDate(timeline.start)}",
-                  );
-
-                  await folder.create(recursive: true);
-
-                  for (final item in timeline.items) {
-                    // اگر عضو گروه تکراری است ولی منتخب نیست
-                    if (duplicateFiles.contains(item.path)) {
-                      if (!selectedDuplicateFiles.contains(item.path)) {
-                        continue;
-                      }
-                    } else {
-                      if (!item.isSelected) {
-                        continue;
-                      }
-                    }
-
-                    final source = File(item.path);
-
-                    if (!await source.exists()) {
-                      continue;
-                    }
-
-                    final destination = p.join(folder.path, item.fileName);
-
-                    await source.rename(destination);
-
-                    current++;
-
+                  onProgress: (p) {
                     setState(() {
                       progress = AnalysisProgress(
                         stage: AnalysisStage.finished,
-                        current: current,
-                        total: total,
-                        message: "در حال انتقال ${item.fileName}",
+                        current: p.current,
+                        total: p.total,
+                        message: "در حال انتقال ${p.fileName}",
                       );
                     });
-                  }
-                }
-
-                setState(() {
-                  progress = AnalysisProgress(
-                    stage: AnalysisStage.finished,
-                    current: total,
-                    total: total,
-                    message: "انتقال فایل‌ها پایان یافت.",
-                  );
-                });
+                  },
+                );
               },
 
               mediaItems_length: mediaItems.length,
@@ -229,6 +174,37 @@ class _HomePageState extends State<HomePage> {
         ),
       ),
     );
+  }
+
+  int get totalSelectedFiles {
+    final selectedDuplicateFiles = <String>{};
+    final duplicateFiles = <String>{};
+
+    for (final group in duplicateGroups) {
+      selectedDuplicateFiles.add(group.primary.path);
+
+      for (final item in group.items) {
+        duplicateFiles.add(item.path);
+      }
+    }
+
+    int total = 0;
+
+    for (final timeline in groups) {
+      for (final item in timeline.items) {
+        if (duplicateFiles.contains(item.path)) {
+          if (selectedDuplicateFiles.contains(item.path)) {
+            total++;
+          }
+        } else {
+          if (item.isSelected) {
+            total++;
+          }
+        }
+      }
+    }
+
+    return total;
   }
 
   Future<void> selectFolder() async {

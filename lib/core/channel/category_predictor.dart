@@ -278,6 +278,42 @@ class CategoryPredictor {
         .split(RegExp(r'\r?\n'))
         .firstWhere((line) => line.trim().isNotEmpty, orElse: () => '');
 
+    // حذف ادامه جمله از روی کلمات کلیدی
+    const cutWords = [
+      'جهت',
+      'به منظور',
+      'بمنظور',
+      'بهمنظور',
+      'به منظور',
+      'با هدف',
+      'در راستای',
+      'در خصوص',
+      'به مناسبت',
+      'با حضور',
+      'با همراهی',
+      'با مشارکت',
+      'با همکاری',
+      'به ریاست',
+      'در دیدار',
+      'در بازدید',
+    ];
+
+    int? cutIndex;
+
+    for (final word in cutWords) {
+      final index = text.indexOf(word);
+
+      if (index != -1) {
+        if (cutIndex == null || index < cutIndex) {
+          cutIndex = index;
+        }
+      }
+    }
+
+    if (cutIndex != null) {
+      text = text.substring(0, cutIndex);
+    }
+
     // حذف فاصله‌های اضافی
     text = text.replaceAll(RegExp(r'\s+'), ' ').trim();
 
