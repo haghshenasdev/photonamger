@@ -4,6 +4,7 @@ import 'package:fgphoto/core/channel/read_chanel.dart';
 import 'package:fgphoto/core/utils/persian_date.dart';
 import 'package:fgphoto/ui/models/timeline_group.dart';
 import 'package:fgphoto/ui/widgets/title_select_dialog.dart';
+import 'package:fgphoto/ui/widgets/title_suggestion_dialog.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 
@@ -118,67 +119,84 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                     },
                   ),
                 ],
-                const SizedBox(width: 8),
 
-                Tooltip(
-                  message: 'بازسازی دسته‌بندی ها',
-                  child: IconButton(
-                    icon: const Icon(FluentIcons.refresh),
-                    onPressed: widget.onResetTimeline,
+                if (selectedForMerge.isEmpty) ...[
+                  const SizedBox(width: 8),
+
+                  Tooltip(
+                    message: 'بازسازی دسته‌بندی ها',
+                    child: IconButton(
+                      icon: const Icon(FluentIcons.refresh),
+                      onPressed: widget.onResetTimeline,
+                    ),
                   ),
-                ),
 
-                FilledButton(
-                  child: const Text("پیشنهاد عنوان"),
+                  FilledButton(
+                    child: const Text("پیشنهاد عنوان"),
+                    onPressed: () async {
+                      await showDialog(
+                        context: context,
+                        builder: (_) => TitleSuggestionDialog(
+                          groups: widget.groups,
 
-                  onPressed: () async {
-                    final rc = ReadChannelService(
-                      predictor: CategoryPredictor(),
-                    );
+                          suggestedTitles: suggestedTitles,
 
-                    final oldestDate = widget.groups
-                        .map((e) => e.start)
-                        .reduce((a, b) => a.isBefore(b) ? a : b);
-                    final posts = rc.read(oldestDate: oldestDate);
-                    final remainingPosts = List<ChannelPost>.from(await posts);
+                          onFinished: () {
+                            setState(() {});
+                          },
+                        ),
+                      );
+                    },
 
-                    // مرتب‌سازی بر اساس زمان
-                    remainingPosts.sort((a, b) => a.date.compareTo(b.date));
+                    // onPressed: () async {
+                    //   final rc = ReadChannelService(
+                    //     predictor: CategoryPredictor(),
+                    //   );
 
-                    suggestedTitles.clear();
+                    //   final oldestDate = widget.groups
+                    //       .map((e) => e.start)
+                    //       .reduce((a, b) => a.isBefore(b) ? a : b);
+                    //   final posts = rc.read(oldestDate: oldestDate);
+                    //   final remainingPosts = List<ChannelPost>.from(await posts);
 
-                    for (final group in widget.groups) {
-                      ChannelPost? bestPost;
-                      Duration? bestDistance;
+                    //   // مرتب‌سازی بر اساس زمان
+                    //   remainingPosts.sort((a, b) => a.date.compareTo(b.date));
 
-                      for (final post in remainingPosts) {
-                        // پست قبل از اولین عکس است => غیرمجاز
-                        if (post.date.isBefore(group.start)) {
-                          continue;
-                        }
+                    //   suggestedTitles.clear();
 
-                        final distance = post.date.difference(group.end).abs();
+                    //   for (final group in widget.groups) {
+                    //     ChannelPost? bestPost;
+                    //     Duration? bestDistance;
 
-                        if (bestDistance == null || distance < bestDistance) {
-                          bestDistance = distance;
-                          bestPost = post;
-                        }
-                      }
+                    //     for (final post in remainingPosts) {
+                    //       // پست قبل از اولین عکس است => غیرمجاز
+                    //       if (post.date.isBefore(group.start)) {
+                    //         continue;
+                    //       }
 
-                      if (bestPost != null) {
-                        group.title = bestPost.title;
+                    //       final distance = post.date.difference(group.end).abs();
 
-                        if (!suggestedTitles.contains(bestPost.title)) {
-                          suggestedTitles.add(bestPost.title);
-                        }
+                    //       if (bestDistance == null || distance < bestDistance) {
+                    //         bestDistance = distance;
+                    //         bestPost = post;
+                    //       }
+                    //     }
 
-                        remainingPosts.remove(bestPost);
-                      }
-                    }
+                    //     if (bestPost != null) {
+                    //       group.title = bestPost.title;
 
-                    setState(() {});
-                  },
-                ),
+                    //       if (!suggestedTitles.contains(bestPost.title)) {
+                    //         suggestedTitles.add(bestPost.title);
+                    //       }
+
+                    //       remainingPosts.remove(bestPost);
+                    //     }
+                    //   }
+
+                    //   setState(() {});
+                    // },
+                  ),
+                ],
               ],
             ),
           ),
@@ -194,6 +212,8 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                       final isSelected = widget.selectedGroup == group;
                       final isExpanded = expandedGroups.contains(index);
 
+                      final flyoutController = FlyoutController();
+
                       return Padding(
                         padding: const EdgeInsets.all(6),
                         child: Container(
@@ -207,75 +227,168 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                           child: Column(
                             children: [
                               /// HEADER ROW
-                              GestureDetector(
-                                onTap: () => widget.onGroupSelected(group),
-                                child: Container(
-                                  padding: const EdgeInsets.all(10),
-                                  child: Row(
-                                    children: [
-                                      /// CHECKBOX FOR MERGE
-                                      Checkbox(
-                                        checked: selectedForMerge.contains(
-                                          index,
-                                        ),
-                                        onChanged: (v) {
-                                          setState(() {
-                                            if (v == true) {
-                                              selectedForMerge.add(index);
-                                            } else {
-                                              selectedForMerge.remove(index);
-                                            }
-                                          });
-                                        },
-                                      ),
+                              FlyoutTarget(
+                                controller: flyoutController,
+                                child: GestureDetector(
+                                  onTap: () {
+                                    if (selectedForMerge.isNotEmpty) {
+                                      setState(() {
+                                        if (selectedForMerge.contains(index)) {
+                                          selectedForMerge.remove(index);
+                                        } else {
+                                          selectedForMerge.add(index);
+                                        }
+                                      });
+                                      return;
+                                    }
 
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              group.title,
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.bold,
+                                    widget.onGroupSelected(group);
+                                  },
+
+                                  onLongPress: () {
+                                    setState(() {
+                                      selectedForMerge.add(index);
+                                    });
+
+                                    widget.onGroupSelected(group);
+                                  },
+
+                                  onSecondaryTapUp: (details) {
+                                    flyoutController.showFlyout(
+                                      position: details.globalPosition,
+                                      builder: (context) {
+                                        return MenuFlyout(
+                                          items: [
+                                            MenuFlyoutItem(
+                                              leading: const Icon(
+                                                FluentIcons.checkbox_composite,
                                               ),
+                                              text: const Text("انتخاب"),
+                                              onPressed: () {
+                                                Navigator.pop(context);
+
+                                                setState(() {
+                                                  selectedForMerge.add(index);
+                                                });
+
+                                                widget.onGroupSelected(group);
+                                              },
                                             ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              '${group.items.length} فایل',
-                                              style: const TextStyle(
-                                                fontSize: 11,
+
+                                            MenuFlyoutItem(
+                                              leading: const Icon(
+                                                FluentIcons.edit,
                                               ),
+                                              text: const Text("ویرایش"),
+                                              onPressed: () {
+                                                Navigator.pop(context);
+
+                                                setState(() {
+                                                  expandedGroups.add(index);
+                                                });
+
+                                                widget.onGroupSelected(group);
+                                              },
                                             ),
-                                            Text(
-                                              '${PersianDate.formatDateTime(group.start)}'
-                                              ' تا '
-                                              '${PersianDate.formatDateTime(group.end)}',
-                                              style: const TextStyle(
-                                                fontSize: 11,
+
+                                            MenuFlyoutSeparator(),
+
+                                            MenuFlyoutItem(
+                                              leading: const Icon(
+                                                FluentIcons.delete,
                                               ),
+                                              text: const Text("حذف"),
+                                              onPressed: () {
+                                                Navigator.pop(context);
+
+                                                setState(() {
+                                                  widget.groups.removeAt(index);
+
+                                                  expandedGroups.remove(index);
+                                                  selectedForMerge.remove(
+                                                    index,
+                                                  );
+                                                });
+                                              },
                                             ),
                                           ],
-                                        ),
-                                      ),
+                                        );
+                                      },
+                                    );
+                                  },
 
-                                      IconButton(
-                                        icon: Icon(
-                                          isExpanded
-                                              ? FluentIcons.chevron_up
-                                              : FluentIcons.chevron_down,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(10),
+                                    child: Row(
+                                      children: [
+                                        if (selectedForMerge.isNotEmpty)
+                                          Checkbox(
+                                            checked: selectedForMerge.contains(
+                                              index,
+                                            ),
+                                            onChanged: (v) {
+                                              setState(() {
+                                                if (v == true) {
+                                                  selectedForMerge.add(index);
+                                                } else {
+                                                  selectedForMerge.remove(
+                                                    index,
+                                                  );
+                                                }
+                                              });
+                                            },
+                                          ),
+
+                                        const SizedBox(width: 4),
+
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                group.title,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                '${group.items.length} فایل',
+                                                style: const TextStyle(
+                                                  fontSize: 11,
+                                                ),
+                                              ),
+                                              Text(
+                                                '${PersianDate.formatDateTime(group.start)}'
+                                                ' تا '
+                                                '${PersianDate.formatDateTime(group.end)}',
+                                                style: const TextStyle(
+                                                  fontSize: 11,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                        onPressed: () {
-                                          setState(() {
-                                            if (isExpanded) {
-                                              expandedGroups.remove(index);
-                                            } else {
-                                              expandedGroups.add(index);
-                                            }
-                                          });
-                                        },
-                                      ),
-                                    ],
+
+                                        IconButton(
+                                          icon: Icon(
+                                            isExpanded
+                                                ? FluentIcons.chevron_up
+                                                : FluentIcons.chevron_down,
+                                          ),
+                                          onPressed: () {
+                                            setState(() {
+                                              if (isExpanded) {
+                                                expandedGroups.remove(index);
+                                              } else {
+                                                expandedGroups.add(index);
+                                              }
+                                            });
+                                          },
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),

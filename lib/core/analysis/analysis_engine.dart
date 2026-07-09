@@ -348,5 +348,6 @@ class AnalysisEngine {
 
       callback,
     );
+    progress = null;
   }
 }

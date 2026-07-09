@@ -13,11 +13,19 @@ class DuplicateGroupCard extends StatelessWidget {
     return Card(
       child: Column(
         children: [
-          const Padding(
-            padding: EdgeInsets.all(12),
-            child: Text(
-              'تصاویر تکراری',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                const Text(
+                  'تصاویر تکراری',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+
+                const SizedBox(width: 8),
+
+                InfoBadge(source: Text('${groups.length}')),
+              ],
             ),
           ),
 

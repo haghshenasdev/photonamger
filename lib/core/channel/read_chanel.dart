@@ -6,15 +6,24 @@ import 'package:html/parser.dart';
 import 'package:http/http.dart' as http;
 
 class ReadChannelService {
-  ReadChannelService({required this.predictor});
+  ReadChannelService({required this.predictor, required String channel})
+    : channel = channel.replaceFirst('@', '');
 
   final CategoryPredictor predictor;
+  final String channel;
 
   /// از دیتابیس یا تنظیمات بخوان
   // int lastReadId = 9555;
 
-  Future<List<ChannelPost>> read({required DateTime oldestDate}) async {
+  Future<List<ChannelPost>> read({
+    required DateTime oldestDate,
+    void Function(double? progress, String status)? onProgress,
+  }) async {
     try {
+      int page = 0;
+
+      onProgress?.call(null, "در حال خواندن کانال...");
+
       int? currentId;
 
       final Map<int, List<String>> newPosts = {};
@@ -22,9 +31,12 @@ class ReadChannelService {
       bool reachedOldest = false;
 
       while (!reachedOldest) {
+        page++;
+
+        onProgress?.call(null, "در حال خواندن صفحه $page");
         final url = currentId == null
-            ? "https://eitaa.com/Hamase4"
-            : "https://eitaa.com/Hamase4?before=$currentId";
+            ? "https://eitaa.com/$channel"
+            : "https://eitaa.com/$channel?before=$currentId";
 
         final result = await dom(url);
 
@@ -61,6 +73,8 @@ class ReadChannelService {
         currentId = ids.last;
       }
 
+      onProgress?.call(null, "در حال حذف عناوین تکراری...");
+
       final filtered = removeExactDuplicateTitlesKeepHigherId(newPosts);
 
       final sortedIds = filtered.keys.toList()..sort();
@@ -69,7 +83,18 @@ class ReadChannelService {
 
       print("${sortedIds.length} پست خوانده شد");
 
+      int current = 0;
+
+      final total = sortedIds.length;
+
       for (final id in sortedIds) {
+        current++;
+
+        onProgress?.call(
+          current / total,
+          "در حال تحلیل عنوان‌ها ($current از $total)",
+        );
+
         final post = filtered[id]!;
 
         final title = post[0];
@@ -82,11 +107,12 @@ class ReadChannelService {
             ChannelPost(title: predictor.cleanTitle(title), date: date, id: id),
           );
 
-          print(predictor.cleanTitle(title));
-          print(date);
+          // print(predictor.cleanTitle(title));
+          // print(date);
         }
       }
 
+      onProgress?.call(1, "خواندن کانال پایان یافت");
       return posts;
     } catch (e) {
       print(e);
