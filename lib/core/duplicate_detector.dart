@@ -8,16 +8,25 @@ import '../ui/models/duplicate_group.dart';
 import '../ui/models/media_item.dart';
 
 class DuplicateDetector {
-  static const int similarityThreshold = 8;
+  static const int similarityThreshold = 14;
 
   Future<List<DuplicateGroup>> findDuplicates(
     List<MediaItem> items, {
     required AnalysisController controller,
+    required int groupIndex,
+
+    required int totalGroups,
     void Function(int current, int total, String status)? onProgress,
   }) async {
     // ---------- مرحله اول : محاسبه Hash ----------
 
-    await _calculateHashes(items, controller, onProgress);
+    await _calculateHashes(
+      items,
+      controller,
+      onProgress,
+      groupIndex,
+      totalGroups,
+    );
 
     if (controller.isCancelled) {
       return [];
@@ -48,6 +57,8 @@ class DuplicateDetector {
     List<MediaItem> items,
     AnalysisController controller,
     void Function(int, int, String)? onProgress,
+    int groupIndex,
+    int totalGroups,
   ) async {
     int current = 0;
 
@@ -61,7 +72,7 @@ class DuplicateDetector {
       onProgress?.call(
         current,
         items.length,
-        'در حال محاسبه هش تصاویر ($current از ${items.length})',
+        'گروه $groupIndex از $totalGroups - در حال محاسبه هش تصاویر ($current از ${items.length})',
       );
 
       if (item.isVideo) {
@@ -96,12 +107,20 @@ class DuplicateDetector {
         .where((e) => !e.isVideo && e.pHash != null)
         .toList();
 
+    // اگر مرتب نباشند، مرتب می‌کنیم.
+    validItems.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+
+    // final groups = <DuplicateGroup>[];
+    // final visited = <MediaItem>{};
+
     int current = 0;
 
-    for (final item in validItems) {
+    for (int i = 0; i < validItems.length; i++) {
       if (!await controller.checkpoint()) {
         return [];
       }
+
+      final item = validItems[i];
 
       current++;
 
@@ -115,26 +134,25 @@ class DuplicateDetector {
         continue;
       }
 
-      final currentGroup = <MediaItem>[];
-
-      currentGroup.add(item);
+      final currentGroup = <MediaItem>[item];
 
       visited.add(item);
 
-      for (final other in validItems) {
+      for (int j = i + 1; j < validItems.length; j++) {
         if (!await controller.checkpoint()) {
           return [];
         }
 
-        if (identical(item, other)) {
-          continue;
+        final other = validItems[j];
+
+        // فقط تصاویر با اختلاف زمانی حداکثر ۳۰ دقیقه مقایسه شوند
+        final diff = other.createdAt.difference(item.createdAt);
+
+        if (diff.inMinutes > 30) {
+          break;
         }
 
         if (visited.contains(other)) {
-          continue;
-        }
-
-        if (other.pHash == null) {
           continue;
         }
 
@@ -142,13 +160,11 @@ class DuplicateDetector {
 
         if (distance <= similarityThreshold) {
           currentGroup.add(other);
-
           visited.add(other);
         }
       }
 
       if (currentGroup.length > 1) {
-        // مرتب‌سازی گروه بر اساس تاریخ
         currentGroup.sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
         groups.add(DuplicateGroup(items: currentGroup, selectedIndex: 0));
@@ -231,25 +247,43 @@ class DuplicateDetector {
   // Discrete Cosine Transform
   //---------------------------------------------------------------------------
 
+  static const int _dctSize = 32;
+
+  static const int _hashSize = 8;
+
+  static final double _invSqrt2 = 1 / math.sqrt(2);
+
+  /// cosTable[u][x]
+  static final List<List<double>> _cosTable = List.generate(
+    _hashSize,
+    (u) => List.generate(
+      _dctSize,
+      (x) => math.cos(((2 * x + 1) * u * math.pi) / (2 * _dctSize)),
+    ),
+  );
+
   List<List<double>> _applyDCT(List<List<double>> input) {
-    const int n = 32;
+    final output = List.generate(
+      _dctSize,
+      (_) => List<double>.filled(_dctSize, 0),
+    );
 
-    final output = List.generate(n, (_) => List<double>.filled(n, 0));
+    for (int u = 0; u < _hashSize; u++) {
+      final cu = (u == 0) ? _invSqrt2 : 1.0;
+      final cosU = _cosTable[u];
 
-    for (int u = 0; u < n; u++) {
-      final cu = u == 0 ? 1 / math.sqrt(2) : 1.0;
-
-      for (int v = 0; v < n; v++) {
-        final cv = v == 0 ? 1 / math.sqrt(2) : 1.0;
+      for (int v = 0; v < _hashSize; v++) {
+        final cv = (v == 0) ? _invSqrt2 : 1.0;
+        final cosV = _cosTable[v];
 
         double sum = 0;
 
-        for (int x = 0; x < n; x++) {
-          for (int y = 0; y < n; y++) {
-            sum +=
-                input[x][y] *
-                math.cos(((2 * x + 1) * u * math.pi) / (2 * n)) *
-                math.cos(((2 * y + 1) * v * math.pi) / (2 * n));
+        for (int x = 0; x < _dctSize; x++) {
+          final inputRow = input[x];
+          final cosUx = cosU[x];
+
+          for (int y = 0; y < _dctSize; y++) {
+            sum += inputRow[y] * cosUx * cosV[y];
           }
         }
 

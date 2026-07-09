@@ -51,7 +51,7 @@ class AnalysisEngine {
 
   bool get isRunning => _running;
 
-  AnalysisProgress progress = const AnalysisProgress(
+  AnalysisProgress? progress = const AnalysisProgress(
     stage: AnalysisStage.idle,
     current: 0,
     total: 0,
@@ -148,21 +148,42 @@ class AnalysisEngine {
   }
 
   Future<void> _findDuplicates(AnalysisCallback? callback) async {
+    // duplicateGroups = await duplicateDetector.findDuplicates(
+    //   mediaItems,
+    //   controller: controller,
+    //   onProgress: (current, total, status) {
+    //     _updateProgress(
+    //       AnalysisStage.duplicate,
+    //       current,
+    //       total,
+    //       status,
+    //       callback,
+    //     );
+    //   },
+    // );
 
-    
-    duplicateGroups = await duplicateDetector.findDuplicates(
-      mediaItems,
-      controller: controller,
-      onProgress: (current, total, status) {
-        _updateProgress(
-          AnalysisStage.duplicate,
-          current,
-          total,
-          status,
-          callback,
-        );
-      },
-    );
+    duplicateGroups.clear();
+
+    for (int i = 0; i < timelineGroups.length; i++) {
+      final group = timelineGroups[i];
+      final result = await duplicateDetector.findDuplicates(
+        group.items,
+        controller: controller,
+        onProgress: (current, total, status) {
+          _updateProgress(
+            AnalysisStage.duplicate,
+            current,
+            total,
+            status,
+            callback,
+          );
+        },
+        groupIndex: i + 1,
+        totalGroups: timelineGroups.length,
+      );
+
+      duplicateGroups.addAll(result);
+    }
   }
 
   Future<AnalysisResult> run(
@@ -230,6 +251,9 @@ class AnalysisEngine {
         'تحلیل پایان یافت.',
         onProgress,
       );
+
+      progress = null;
+      onProgress?.call(null);
 
       // faceDetector.dispose();
 

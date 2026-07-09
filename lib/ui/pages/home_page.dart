@@ -1,11 +1,8 @@
-import 'dart:io';
-
 import 'package:fgphoto/core/analysis/analysis_progress.dart';
 import 'package:fgphoto/core/analysis/analysis_stage.dart';
 import 'package:fgphoto/core/folder_service.dart';
 import 'package:fgphoto/core/media_scanner.dart';
 import 'package:fgphoto/core/timeline_builder.dart';
-import 'package:fgphoto/core/utils/persian_date.dart';
 import 'package:fgphoto/ui/dialogs/transfer_dialog.dart';
 import 'package:fgphoto/ui/models/apply_settings.dart';
 import 'package:fgphoto/ui/models/duplicate_group.dart';
@@ -25,8 +22,6 @@ import 'package:fgphoto/core/analysis/analysis_engine.dart';
 import 'package:fgphoto/core/analysis/blur_detector.dart';
 import 'package:fgphoto/core/analysis/best_photo_selector.dart';
 import 'package:fgphoto/core/analysis/quality_scorer.dart';
-import 'package:path/path.dart' as p;
-import 'package:fgphoto/core/apply/folder_builder.dart';
 
 import 'package:fgphoto/core/analysis/analysis_controller.dart';
 
