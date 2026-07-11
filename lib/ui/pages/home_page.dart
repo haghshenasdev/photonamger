@@ -109,7 +109,15 @@ class _HomePageState extends State<HomePage> {
 
                   const SizedBox(width: 12),
 
-                  Expanded(flex: 2, child: MediaGrid(items: buildGridItems())),
+                  Expanded(
+                    flex: 2,
+                    child: MediaGrid(
+                      items: buildGridItems(),
+                      onChanged: () {
+                        setState(() {});
+                      },
+                    ),
+                  ),
 
                   const SizedBox(width: 12),
 

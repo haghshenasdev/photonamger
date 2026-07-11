@@ -9,8 +9,9 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 class MediaGrid extends StatelessWidget {
   final List<GridItem> items;
+  final VoidCallback? onChanged;
 
-  const MediaGrid({super.key, required this.items});
+  const MediaGrid({super.key, required this.items, this.onChanged});
 
   @override
   Widget build(BuildContext context) {
@@ -51,7 +52,7 @@ class MediaGrid extends StatelessWidget {
             );
           }
 
-          return _MediaTile(item: item.media!, previewItems: previewItems);
+          return _MediaTile(item: item.media!, previewItems: previewItems,onChanged: onChanged,);
         },
       ),
     );
@@ -62,23 +63,27 @@ class _MediaTile extends StatelessWidget {
   final MediaItem item;
 
   final List<PreviewItem> previewItems;
+  final VoidCallback? onChanged;
 
-  const _MediaTile({required this.item, required this.previewItems});
+  const _MediaTile({required this.item, required this.previewItems,this.onChanged,});
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () {
+      onTap: () async {
         final index = previewItems.indexWhere(
           (e) => e.isMedia && e.media!.path == item.path,
         );
 
-        showDialog(
+        final changed = await showDialog<bool>(
           context: context,
-
           builder: (_) =>
               ImagePreviewDialog(items: previewItems, initialIndex: index),
         );
+
+        if (changed == true) {
+          onChanged?.call();
+        }
       },
 
       child: ClipRRect(

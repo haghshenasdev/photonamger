@@ -119,7 +119,7 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
     }
 
     if (event.logicalKey == LogicalKeyboardKey.escape) {
-      Navigator.pop(context);
+      Navigator.pop(context,true);
       return KeyEventResult.handled;
     }
 
@@ -216,7 +216,7 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
       actions: [
         Button(
           child: const Text('بستن'),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => Navigator.pop(context,true),
         ),
       ],
     );
