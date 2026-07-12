@@ -1,6 +1,3 @@
-import 'package:fgphoto/core/channel/category_predictor.dart';
-import 'package:fgphoto/core/channel/chanel_post.dart';
-import 'package:fgphoto/core/channel/read_chanel.dart';
 import 'package:fgphoto/core/utils/persian_date.dart';
 import 'package:fgphoto/ui/models/timeline_group.dart';
 import 'package:fgphoto/ui/widgets/title_select_dialog.dart';

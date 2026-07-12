@@ -1,0 +1,275 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\CMakeLists.txt||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:CMakeLists.txt||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\src\\face_cluster.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\face_cluster.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\include\\face_cluster.h||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:include\\face_cluster.h||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\src\\face_recognizer.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\face_recognizer.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\include\\ace_recognizer.h||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:include\\ace_recognizer.h||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\src\\face_detector.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\face_detector.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\include\\face_detector.h||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:include\\face_detector.h||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\src\\image.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\image.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\include\\image.h||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:include\\image.h||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\include\\types.h||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:include\\types.h||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\src\\api.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\api.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\include\\api.h||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:include\\api.h||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\src\\engine.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\engine.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\include\\engine.h||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:include\\engine.h||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|CMake Overview Pages||{B1CAA5B0-FEB1-4350-8AB9-F895876842F2}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 10,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "face_cluster.cpp",
+              "DocumentMoniker": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\src\\face_cluster.cpp",
+              "RelativeDocumentMoniker": "src\\face_cluster.cpp",
+              "ToolTip": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\src\\face_cluster.cpp",
+              "RelativeToolTip": "src\\face_cluster.cpp",
+              "ViewState": "AgIAAAkBAAAAAAAAAAAqwB0BAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000677|",
+              "WhenOpened": "2026-07-11T04:41:38.677Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "face_cluster.h",
+              "DocumentMoniker": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\include\\face_cluster.h",
+              "RelativeDocumentMoniker": "include\\face_cluster.h",
+              "ToolTip": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\include\\face_cluster.h",
+              "RelativeToolTip": "include\\face_cluster.h",
+              "ViewState": "AgIAACIAAAAAAAAAAAAqwEUAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000680|",
+              "WhenOpened": "2026-07-11T04:40:45.229Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "face_recognizer.cpp",
+              "DocumentMoniker": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\src\\face_recognizer.cpp",
+              "RelativeDocumentMoniker": "src\\face_recognizer.cpp",
+              "ToolTip": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\src\\face_recognizer.cpp",
+              "RelativeToolTip": "src\\face_recognizer.cpp",
+              "ViewState": "AgIAAMcAAAAAAAAAAAAqwOoAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000677|",
+              "WhenOpened": "2026-07-11T04:38:25.1Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "ace_recognizer.h",
+              "DocumentMoniker": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\include\\ace_recognizer.h",
+              "RelativeDocumentMoniker": "include\\ace_recognizer.h",
+              "ToolTip": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\include\\ace_recognizer.h",
+              "RelativeToolTip": "include\\ace_recognizer.h",
+              "ViewState": "AgIAACwAAAAAAAAAAAAqwE8AAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000680|",
+              "WhenOpened": "2026-07-11T04:37:44.46Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "face_detector.cpp",
+              "DocumentMoniker": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\src\\face_detector.cpp",
+              "RelativeDocumentMoniker": "src\\face_detector.cpp",
+              "ToolTip": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\src\\face_detector.cpp",
+              "RelativeToolTip": "src\\face_detector.cpp",
+              "ViewState": "AgIAAG0AAAAAAAAAAAAqwJAAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000677|",
+              "WhenOpened": "2026-07-11T04:29:42.484Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "face_detector.h",
+              "DocumentMoniker": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\include\\face_detector.h",
+              "RelativeDocumentMoniker": "include\\face_detector.h",
+              "ToolTip": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\include\\face_detector.h",
+              "RelativeToolTip": "include\\face_detector.h",
+              "ViewState": "AgIAABkAAAAAAAAAAAAqwDwAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000680|",
+              "WhenOpened": "2026-07-11T04:29:23.516Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 12,
+              "Title": "engine.cpp",
+              "DocumentMoniker": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\src\\engine.cpp",
+              "RelativeDocumentMoniker": "src\\engine.cpp",
+              "ToolTip": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\src\\engine.cpp",
+              "RelativeToolTip": "src\\engine.cpp",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAqwCMAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000677|",
+              "WhenOpened": "2026-07-11T04:25:58.989Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 7,
+              "Title": "image.cpp",
+              "DocumentMoniker": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\src\\image.cpp",
+              "RelativeDocumentMoniker": "src\\image.cpp",
+              "ToolTip": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\src\\image.cpp",
+              "RelativeToolTip": "src\\image.cpp",
+              "ViewState": "AgIAAMUAAAAAAAAAAAAqwOgAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000677|",
+              "WhenOpened": "2026-07-11T04:25:24.755Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 8,
+              "Title": "image.h",
+              "DocumentMoniker": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\include\\image.h",
+              "RelativeDocumentMoniker": "include\\image.h",
+              "ToolTip": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\include\\image.h",
+              "RelativeToolTip": "include\\image.h",
+              "ViewState": "AgIAADcAAAAAAAAAAAAqwFoAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000680|",
+              "WhenOpened": "2026-07-11T04:24:59.867Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 9,
+              "Title": "types.h",
+              "DocumentMoniker": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\include\\types.h",
+              "RelativeDocumentMoniker": "include\\types.h",
+              "ToolTip": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\include\\types.h",
+              "RelativeToolTip": "include\\types.h",
+              "ViewState": "AgIAAFEAAAAAAAAAAAAqwHQAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000680|",
+              "WhenOpened": "2026-07-11T04:24:36.044Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "CMakeLists.txt",
+              "DocumentMoniker": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\CMakeLists.txt",
+              "RelativeDocumentMoniker": "CMakeLists.txt",
+              "ToolTip": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\CMakeLists.txt",
+              "RelativeToolTip": "CMakeLists.txt",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAcAAAAhAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003109|",
+              "WhenOpened": "2026-07-11T04:19:47.058Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 13,
+              "Title": "engine.h",
+              "DocumentMoniker": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\include\\engine.h",
+              "RelativeDocumentMoniker": "include\\engine.h",
+              "ToolTip": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\include\\engine.h",
+              "RelativeToolTip": "include\\engine.h",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABUAAAAyAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000680|",
+              "WhenOpened": "2026-07-11T04:25:44.667Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 10,
+              "Title": "api.cpp",
+              "DocumentMoniker": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\src\\api.cpp",
+              "RelativeDocumentMoniker": "src\\api.cpp",
+              "ToolTip": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\src\\api.cpp",
+              "RelativeToolTip": "src\\api.cpp",
+              "ViewState": "AgIAABIAAAAAAAAAAAAAACcAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000677|",
+              "WhenOpened": "2026-07-11T04:21:50.347Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 11,
+              "Title": "api.h",
+              "DocumentMoniker": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\include\\api.h",
+              "RelativeDocumentMoniker": "include\\api.h",
+              "ToolTip": "C:\\Users\\H\\Desktop\\New folder (2)\\fgphoto\\naitive\\FgVision\\include\\api.h",
+              "RelativeToolTip": "include\\api.h",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABsAAAA1AAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000680|",
+              "WhenOpened": "2026-07-11T04:20:43.171Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 14,
+              "Title": "CMake Overview Pages",
+              "DocumentMoniker": "CMake Overview Pages",
+              "ToolTip": "CMake Overview Pages",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2026-07-11T04:20:06.424Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{cce594b6-0c39-4442-ba28-10c64ac7e89f}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
