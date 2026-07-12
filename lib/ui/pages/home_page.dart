@@ -66,7 +66,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return NavigationView(
       content: ScaffoldPage(
-        header: const PageHeader(title: Text("مدیریت تصاویر")),
+        header: const PageHeader(title: Text("آرشینو - مدیریت تصاویر")),
         content: Column(
           children: [
             FolderSelector(path: folderPath, onSelect: selectFolder),

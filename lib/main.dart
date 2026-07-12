@@ -13,7 +13,7 @@ class MediaOrganizerApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return FluentApp(
       debugShowCheckedModeBanner: false,
-      title: 'Media Organizer',
+      title: 'Archino',
       theme: FluentThemeData(brightness: Brightness.light),
 
       locale: const Locale('fa'),
