@@ -8,7 +8,9 @@ import 'package:fgphoto/ui/models/apply_settings.dart';
 import 'package:fgphoto/ui/models/duplicate_group.dart';
 import 'package:fgphoto/ui/models/girid_item.dart';
 import 'package:fgphoto/ui/models/media_item.dart';
+import 'package:fgphoto/ui/models/preview_item.dart';
 import 'package:fgphoto/ui/models/timeline_group.dart';
+import 'package:fgphoto/ui/widgets/image_preview_dialog.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:fgphoto/core/apply/transfer_service.dart';
 
@@ -135,7 +137,10 @@ class _HomePageState extends State<HomePage> {
 
                   SizedBox(
                     width: 350,
-                    child: DuplicateGroupCard(groups: duplicateGroups),
+                    child: DuplicateGroupCard(
+                      groups: duplicateGroups,
+                      onGroupTap: _openDuplicateGroup,
+                    ),
                   ),
                 ],
               ),
@@ -284,6 +289,73 @@ class _HomePageState extends State<HomePage> {
         ),
       ),
     );
+  }
+
+  Future<void> _openDuplicateGroup(DuplicateGroup duplicateGroup) async {
+    // پیدا کردن TimelineGroup مربوط به این DuplicateGroup
+    TimelineGroup? targetTimeline;
+
+    for (final timelineGroup in groups) {
+      final containsDuplicate = timelineGroup.items.any((mediaItem) {
+        return duplicateGroup.items.any(
+          (duplicateItem) => duplicateItem.path == mediaItem.path,
+        );
+      });
+
+      if (containsDuplicate) {
+        targetTimeline = timelineGroup;
+        break;
+      }
+    }
+
+    if (targetTimeline == null) {
+      return;
+    }
+
+    // اگر گروه مربوط به Timeline دیگری است،
+    // همان Timeline را فعال می‌کنیم.
+    if (!identical(selectedGroup, targetTimeline)) {
+      setState(() {
+        selectedGroup = targetTimeline;
+      });
+
+      // صبر می‌کنیم UI با Timeline جدید rebuild شود.
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    // دقیقاً همان previewItems که MediaGrid استفاده می‌کند
+    final gridItems = buildGridItems();
+
+    final previewItems = gridItems.map((item) {
+      if (item.isDuplicateGroup) {
+        return PreviewItem.duplicate(item.duplicateGroup!);
+      }
+
+      return PreviewItem.media(item.media!);
+    }).toList();
+
+    // پیدا کردن همان گروه داخل previewItems
+    final initialIndex = previewItems.indexWhere((item) {
+      return item.isDuplicate && identical(item.duplicate, duplicateGroup);
+    });
+
+    if (initialIndex < 0 || !mounted) {
+      return;
+    }
+
+    final changed = await showDialog<bool>(
+      context: context,
+      builder: (_) {
+        return ImagePreviewDialog(
+          items: previewItems,
+          initialIndex: initialIndex,
+        );
+      },
+    );
+
+    if (changed == true && mounted) {
+      setState(() {});
+    }
   }
 
   int get totalSelectedFiles {

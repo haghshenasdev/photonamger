@@ -6,7 +6,10 @@ import 'package:fluent_ui/fluent_ui.dart';
 class DuplicateGroupCard extends StatelessWidget {
   final List<DuplicateGroup> groups;
 
-  const DuplicateGroupCard({super.key, required this.groups});
+  /// وقتی روی یک گروه کلیک شود.
+  final ValueChanged<DuplicateGroup>? onGroupTap;
+
+  const DuplicateGroupCard({super.key, required this.groups, this.onGroupTap});
 
   @override
   Widget build(BuildContext context) {
@@ -21,9 +24,7 @@ class DuplicateGroupCard extends StatelessWidget {
                   'تصاویر تکراری',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
-
                 const SizedBox(width: 8),
-
                 InfoBadge(source: Text('${groups.length}')),
               ],
             ),
@@ -32,47 +33,51 @@ class DuplicateGroupCard extends StatelessWidget {
           Expanded(
             child: ListView.builder(
               itemCount: groups.length,
-
               itemBuilder: (_, index) {
                 final group = groups[index];
 
                 return Padding(
                   padding: const EdgeInsets.all(8),
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {
+                      onGroupTap?.call(group);
+                    },
+                    child: SizedBox(
+                      height: 120,
+                      child: Stack(
+                        children: [
+                          if (group.items.length > 2)
+                            Positioned(
+                              left: 20,
+                              top: 20,
+                              child: _thumb(group.items[2].path),
+                            ),
 
-                  child: SizedBox(
-                    height: 120,
+                          if (group.items.length > 1)
+                            Positioned(
+                              left: 10,
+                              top: 10,
+                              child: _thumb(group.items[1].path),
+                            ),
 
-                    child: Stack(
-                      children: [
-                        if (group.items.length > 2)
                           Positioned(
-                            left: 20,
-                            top: 20,
-                            child: _thumb(group.items[2].path),
+                            left: 0,
+                            top: 0,
+                            child: _thumb(
+                              group.items[group.selectedIndex].path,
+                            ),
                           ),
 
-                        if (group.items.length > 1)
                           Positioned(
-                            left: 10,
-                            top: 10,
-                            child: _thumb(group.items[1].path),
+                            right: 0,
+                            bottom: 0,
+                            child: InfoBadge(
+                              source: Text('${group.items.length}'),
+                            ),
                           ),
-
-                        Positioned(
-                          left: 0,
-                          top: 0,
-                          child: _thumb(group.items[group.selectedIndex].path),
-                        ),
-
-                        Positioned(
-                          right: 0,
-                          bottom: 0,
-
-                          child: InfoBadge(
-                            source: Text('${group.items.length}'),
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 );
@@ -88,9 +93,7 @@ class DuplicateGroupCard extends StatelessWidget {
     return Container(
       width: 90,
       height: 90,
-
       decoration: BoxDecoration(border: Border.all()),
-
       child: Image.file(File(path), fit: BoxFit.cover),
     );
   }
