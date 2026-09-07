@@ -38,14 +38,14 @@ dependencies:
   shamsi_date: ^1.1.1
   persian_datetime_picker: ^3.0.0
   file_picker: ^10.3.2
-
   path: ^1.9.1
   image: ^4.5.4
   ffi: ^2.1.2
   path_provider: ^2.1.6
   http: ^1.2.1
-
   html: ^0.15.5
+  fvp: ^0.38.1
+  video_player: ^2.10.0
 
 dev_dependencies:
   flutter_test:

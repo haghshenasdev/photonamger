@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:fgphoto/ui/models/preview_item.dart';
+import 'package:fgphoto/ui/widgets/video_preview.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 
@@ -119,7 +120,7 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
     }
 
     if (event.logicalKey == LogicalKeyboardKey.escape) {
-      Navigator.pop(context,true);
+      Navigator.pop(context, true);
       return KeyEventResult.handled;
     }
 
@@ -216,7 +217,7 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
       actions: [
         Button(
           child: const Text('بستن'),
-          onPressed: () => Navigator.pop(context,true),
+          onPressed: () => Navigator.pop(context, true),
         ),
       ],
     );
@@ -226,7 +227,7 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
     final item = current.media!;
 
     if (item.isVideo) {
-      return const Center(child: Icon(FluentIcons.video, size: 120));
+      return VideoPreview(path: item.path);
     }
 
     return Stack(

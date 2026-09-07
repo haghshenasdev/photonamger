@@ -1,8 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:fvp/fvp.dart' as fvp;
 import 'ui/pages/home_page.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  fvp.registerWith();
   runApp(const MediaOrganizerApp());
 }
 
