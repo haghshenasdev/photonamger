@@ -146,22 +146,117 @@ class _HomePageState extends State<HomePage> {
 
                 final transferService = TransferService();
 
-                await transferService.execute(
-                  groups: groups,
-                  duplicateGroups: duplicateGroups,
-                  settings: settings,
-
-                  onProgress: (p) {
+                try {
+                  // قبل از شروع انتقال
+                  if (mounted) {
                     setState(() {
-                      progress = AnalysisProgress(
+                      progress = const AnalysisProgress(
                         stage: AnalysisStage.finished,
-                        current: p.current,
-                        total: p.total,
-                        message: "در حال انتقال ${p.fileName}",
+                        current: 0,
+                        total: 0,
+                        message: 'در حال آماده‌سازی انتقال...',
                       );
                     });
-                  },
-                );
+                  }
+
+                  await transferService.execute(
+                    groups: groups,
+                    duplicateGroups: duplicateGroups,
+                    settings: settings,
+
+                    //----------------------------------------------------
+                    // وقتی یک فایل با موفقیت منتقل/کپی شد
+                    //----------------------------------------------------
+                    onItemTransferred: (result) {
+                      if (!mounted) {
+                        return;
+                      }
+
+                      /*
+         * خود TransferService قبلاً:
+         *
+         * result.item.updatePath(result.newPath)
+         *
+         * را انجام داده است.
+         *
+         * بنابراین تمام referenceهایی که به همان MediaItem
+         * اشاره می‌کنند، اکنون مسیر جدید را دارند.
+         *
+         * این setState فقط برای refresh شدن UI است.
+         */
+                      setState(() {});
+                    },
+
+                    //----------------------------------------------------
+                    // Progress
+                    //----------------------------------------------------
+                    onProgress: (p) {
+                      if (!mounted) {
+                        return;
+                      }
+
+                      setState(() {
+                        progress = AnalysisProgress(
+                          stage: AnalysisStage.finished,
+                          current: p.current,
+                          total: p.total,
+                          message: "در حال انتقال ${p.fileName}",
+                        );
+                      });
+                    },
+                  );
+
+                  //------------------------------------------------------
+                  // انتقال کامل شد
+                  //------------------------------------------------------
+
+                  if (!mounted) {
+                    return;
+                  }
+
+                  setState(() {
+                    progress = null;
+                  });
+
+                  //------------------------------------------------------
+                  // Timeline و Duplicateها را دوباره نمی‌سازیم.
+                  //
+                  // چون createdAt و سایر اطلاعات MediaItem تغییر نکرده
+                  // و فقط path عوض شده است.
+                  //
+                  // خود objectهای MediaItem داخل:
+                  // mediaItems
+                  // groups
+                  // duplicateGroups
+                  //
+                  // همان object هستند.
+                  //------------------------------------------------------
+
+                  setState(() {});
+                } catch (e, stackTrace) {
+                  debugPrint('Transfer error: $e');
+                  debugPrintStack(stackTrace: stackTrace);
+
+                  if (!mounted) {
+                    return;
+                  }
+
+                  setState(() {
+                    progress = null;
+                  });
+
+                  await displayInfoBar(
+                    context,
+                    builder: (context, close) {
+                      return InfoBar(
+                        title: const Text('خطا در انتقال فایل'),
+                        content: Text(e.toString()),
+                        severity: InfoBarSeverity.error,
+                        onClose: close,
+                      );
+                    },
+                  );
+                }
               },
 
               mediaItems_length: mediaItems.length,

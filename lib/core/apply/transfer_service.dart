@@ -21,19 +21,36 @@ class TransferProgress {
   double get percent => total == 0 ? 0 : current / total;
 }
 
+/// نتیجه انتقال یک فایل.
+///
+/// oldPath مسیر فایل قبل از انتقال است.
+/// newPath مسیر فایل مقصد است.
+/// item همان MediaItem موجود در state برنامه است.
+class TransferResult {
+  final MediaItem item;
+  final String oldPath;
+  final String newPath;
+
+  const TransferResult({
+    required this.item,
+    required this.oldPath,
+    required this.newPath,
+  });
+}
+
 class TransferService {
-  Future<void> execute({
+  Future<List<TransferResult>> execute({
     required List<TimelineGroup> groups,
     required List<DuplicateGroup> duplicateGroups,
     required ApplySettings settings,
     void Function(TransferProgress progress)? onProgress,
+    void Function(TransferResult result)? onItemTransferred,
   }) async {
     //------------------------------------------------------
     // عکس‌های منتخب گروه‌های تکراری
     //------------------------------------------------------
 
     final selectedDuplicateFiles = <String>{};
-
     final duplicateFiles = <String>{};
 
     for (final group in duplicateGroups) {
@@ -45,18 +62,14 @@ class TransferService {
     }
 
     //------------------------------------------------------
-    // تعداد فایل‌ها
+    // محاسبه تعداد فایل‌ها
     //------------------------------------------------------
 
     int total = 0;
 
     for (final timeline in groups) {
       for (final item in timeline.items) {
-        if (_shouldTransfer(
-          item,
-          duplicateFiles,
-          selectedDuplicateFiles,
-        )) {
+        if (_shouldTransfer(item, duplicateFiles, selectedDuplicateFiles)) {
           total++;
         }
       }
@@ -68,6 +81,8 @@ class TransferService {
 
     int current = 0;
 
+    final results = <TransferResult>[];
+
     for (final timeline in groups) {
       final folder = await FolderBuilder.build(
         settings: settings,
@@ -75,30 +90,141 @@ class TransferService {
       );
 
       for (final item in timeline.items) {
-        if (!_shouldTransfer(
-          item,
-          duplicateFiles,
-          selectedDuplicateFiles,
-        )) {
+        if (!_shouldTransfer(item, duplicateFiles, selectedDuplicateFiles)) {
           continue;
         }
 
-        final source = File(item.path);
+        final oldPath = item.path;
+        final source = File(oldPath);
+
+        //--------------------------------------------------
+        // فایل مبدأ وجود ندارد
+        //--------------------------------------------------
 
         if (!await source.exists()) {
           continue;
         }
 
-        final destination = p.join(
-          folder.path,
-          item.fileName,
+        //--------------------------------------------------
+        // مسیر مقصد
+        //--------------------------------------------------
+
+        final destinationPath = p.join(folder.path, item.fileName);
+
+        final destination = File(destinationPath);
+
+        //--------------------------------------------------
+        // اگر مقصد همان فایل مبدأ است
+        //--------------------------------------------------
+
+        final normalizedSource = p.normalize(p.absolute(oldPath));
+
+        final normalizedDestination = p.normalize(p.absolute(destinationPath));
+
+        if (normalizedSource == normalizedDestination) {
+          // چیزی منتقل نشده، ولی مدل باید همین مسیر را نگه دارد.
+          current++;
+
+          final result = TransferResult(
+            item: item,
+            oldPath: oldPath,
+            newPath: destinationPath,
+          );
+
+          results.add(result);
+
+          onItemTransferred?.call(result);
+
+          onProgress?.call(
+            TransferProgress(
+              current: current,
+              total: total,
+              fileName: item.fileName,
+            ),
+          );
+
+          continue;
+        }
+
+        //--------------------------------------------------
+        // اگر فایل مقصد از قبل وجود دارد
+        //--------------------------------------------------
+
+        if (await destination.exists()) {
+          /*
+           * در این حالت فایل قبلی مقصد را حذف نمی‌کنیم.
+           *
+           * چون کاربر صراحتاً می‌خواهد فایل‌های قبلی
+           * دست‌نخورده باقی بمانند.
+           *
+           * بنابراین یک نام یکتا برای فایل جدید می‌سازیم.
+           */
+          final uniquePath = await _createUniqueFilePath(destinationPath);
+
+          await _transferFile(
+            source: source,
+            destinationPath: uniquePath,
+            move: settings.moveFiles,
+          );
+
+          final result = TransferResult(
+            item: item,
+            oldPath: oldPath,
+            newPath: uniquePath,
+          );
+
+          results.add(result);
+
+          //------------------------------------------------
+          // بسیار مهم:
+          // مدل را بلافاصله به مسیر جدید تغییر می‌دهیم.
+          //------------------------------------------------
+
+          item.updatePath(uniquePath);
+
+          onItemTransferred?.call(result);
+
+          current++;
+
+          onProgress?.call(
+            TransferProgress(
+              current: current,
+              total: total,
+              fileName: item.fileName,
+            ),
+          );
+
+          continue;
+        }
+
+        //--------------------------------------------------
+        // انتقال عادی
+        //--------------------------------------------------
+
+        await _transferFile(
+          source: source,
+          destinationPath: destinationPath,
+          move: settings.moveFiles,
         );
 
-        if (settings.moveFiles) {
-          await source.rename(destination);
-        } else {
-          await source.copy(destination);
-        }
+        final result = TransferResult(
+          item: item,
+          oldPath: oldPath,
+          newPath: destinationPath,
+        );
+
+        results.add(result);
+
+        //--------------------------------------------------
+        // مهم‌ترین بخش:
+        //
+        // چه Move باشد چه Copy،
+        // مسیر MediaItem را به مقصد تغییر می‌دهیم.
+        //--------------------------------------------------
+
+        item.updatePath(destinationPath);
+
+        onItemTransferred?.call(result);
 
         current++;
 
@@ -111,7 +237,70 @@ class TransferService {
         );
       }
     }
+
+    return results;
   }
+
+  //--------------------------------------------------------
+  // انتقال فایل
+  //--------------------------------------------------------
+
+  Future<void> _transferFile({
+    required File source,
+    required String destinationPath,
+    required bool move,
+  }) async {
+    final destination = File(destinationPath);
+
+    // اطمینان از وجود پوشه مقصد
+    await destination.parent.create(recursive: true);
+
+    if (move) {
+      await source.rename(destinationPath);
+    } else {
+      await source.copy(destinationPath);
+    }
+
+    //------------------------------------------------------
+    // اطمینان از اینکه فایل مقصد واقعاً ایجاد شده است.
+    //------------------------------------------------------
+
+    if (!await destination.exists()) {
+      throw FileSystemException('فایل مقصد ایجاد نشد', destinationPath);
+    }
+  }
+
+  //--------------------------------------------------------
+  // ساخت مسیر یکتا در صورت وجود فایل همنام
+  //--------------------------------------------------------
+
+  Future<String> _createUniqueFilePath(String originalPath) async {
+    final file = File(originalPath);
+
+    if (!await file.exists()) {
+      return originalPath;
+    }
+
+    final directory = file.parent.path;
+    final extension = p.extension(originalPath);
+    final basename = p.basenameWithoutExtension(originalPath);
+
+    int counter = 1;
+
+    while (true) {
+      final candidate = p.join(directory, '$basename ($counter)$extension');
+
+      if (!await File(candidate).exists()) {
+        return candidate;
+      }
+
+      counter++;
+    }
+  }
+
+  //--------------------------------------------------------
+  // آیا فایل باید منتقل شود؟
+  //--------------------------------------------------------
 
   bool _shouldTransfer(
     MediaItem item,

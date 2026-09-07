@@ -4,19 +4,22 @@ import '../../core/analysis/photo_score.dart';
 class MediaItem {
   // ===== اطلاعات اصلی =====
 
-  final String path;
+  /// مسیر فعلی فایل.
+  ///
+  /// این مقدار بعد از Copy یا Move موفقیت‌آمیز
+  /// به مسیر فایل مقصد تغییر می‌کند.
+  String path;
 
   final DateTime createdAt;
-
   final bool isVideo;
-
   final int fileSize;
-
   final String fileName;
 
   List<FaceInfo> faces = [];
+
   PhotoScore? score;
-  bool selected=true;
+
+  bool selected = true;
 
   // ===== وضعیت انتخاب =====
 
@@ -80,33 +83,25 @@ class MediaItem {
     required this.isVideo,
     required this.fileSize,
     required this.fileName,
-
     this.isSelected = true,
-
     this.analyzed = false,
-
     this.qualityScore = 0,
-
     this.sharpness = 0,
-
     this.blurScore = 0,
-
     this.isBlurred = false,
-
     this.faceCount = 0,
-
     this.openEyes = 0,
-
     this.faceQuality = 0,
-
     this.largestFaceSize = 0,
-
     this.brightness = 0,
-
     this.contrast = 0,
-
     this.aiScore = 0,
-
     this.analysisMessage = '',
   });
+
+  /// مسیر فایل را بعد از Copy یا Move موفقیت‌آمیز
+  /// به مسیر مقصد تغییر می‌دهد.
+  void updatePath(String newPath) {
+    path = newPath;
+  }
 }
