@@ -13,7 +13,6 @@ import 'analysis_stage.dart';
 import 'analysis_status.dart';
 import 'blur_detector.dart';
 
-import 'face_detector.dart';
 import 'quality_scorer.dart';
 import 'best_photo_selector.dart';
 
@@ -24,7 +23,6 @@ class AnalysisEngine {
   final BestPhotoSelector bestPhotoSelector;
 
   final TimelineBuilder timelineBuilder;
-  final FaceDetectorService faceDetector;
 
   final DuplicateDetector duplicateDetector;
 
@@ -33,12 +31,9 @@ class AnalysisEngine {
     TimelineBuilder? timelineBuilder,
     DuplicateDetector? duplicateDetector,
     required this.blurDetector,
-    FaceDetectorService? faceDetector,
     required this.qualityScorer,
     required this.bestPhotoSelector,
   }) : timelineBuilder = timelineBuilder ?? TimelineBuilder(),
-       faceDetector = faceDetector ?? FaceDetectorService(),
-
        duplicateDetector = duplicateDetector ?? DuplicateDetector();
 
   List<TimelineGroup> timelineGroups = [];

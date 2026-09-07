@@ -42,7 +42,6 @@ dependencies:
   path: ^1.9.1
   image: ^4.5.4
   ffi: ^2.1.2
-  opencv_dart: ^2.2.1+4
   path_provider: ^2.1.6
   http: ^1.2.1
 
