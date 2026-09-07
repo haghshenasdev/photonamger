@@ -7,47 +7,109 @@ class MediaScanner {
 
   static const videoExt = {'.mp4', '.avi', '.mov', '.mkv', '.wmv'};
 
+  /// اسکن یک پوشه
+  ///
+  /// برای حفظ سازگاری با کدهای قبلی.
   Future<List<MediaItem>> scanFolder(String folderPath) async {
+    return scanFolders([folderPath]);
+  }
+
+  /// اسکن چند پوشه
+  ///
+  /// تمام فایل‌های موجود در مسیرها را در یک لیست برمی‌گرداند.
+  Future<List<MediaItem>> scanFolders(List<String> folderPaths) async {
     final result = <MediaItem>[];
 
-    final directory = Directory(folderPath);
+    // جلوگیری از اضافه شدن یک فایل بیش از یک بار
+    final scannedPaths = <String>{};
 
-    if (!directory.existsSync()) {
-      return result;
-    }
+    for (final folderPath in folderPaths) {
+      final directory = Directory(folderPath);
 
-    await for (final entity in directory.list(recursive: true)) {
-      if (entity is! File) {
+      if (!await directory.exists()) {
         continue;
       }
 
-      final path = entity.path.toLowerCase();
+      await for (final entity in directory.list(
+        recursive: true,
+        followLinks: false,
+      )) {
+        if (entity is! File) {
+          continue;
+        }
 
-      bool isImage = imageExt.any((e) => path.endsWith(e));
+        final path = entity.path;
+        final lowerPath = path.toLowerCase();
 
-      bool isVideo = videoExt.any((e) => path.endsWith(e));
+        final isImage = imageExt.any(
+          (extension) => lowerPath.endsWith(extension),
+        );
 
-      if (!isImage && !isVideo) {
-        continue;
+        final isVideo = videoExt.any(
+          (extension) => lowerPath.endsWith(extension),
+        );
+
+        if (!isImage && !isVideo) {
+          continue;
+        }
+
+        //--------------------------------------------------
+        // جلوگیری از duplicate path
+        //--------------------------------------------------
+
+        final normalizedPath = _normalizePath(path);
+
+        if (!scannedPaths.add(normalizedPath)) {
+          continue;
+        }
+
+        //--------------------------------------------------
+        // اطلاعات فایل
+        //--------------------------------------------------
+
+        FileStat stat;
+
+        try {
+          stat = await entity.stat();
+        } catch (_) {
+          // فایل ممکن است در حین اسکن حذف یا جابه‌جا شده باشد.
+          continue;
+        }
+
+        final fileName = _getFileName(path);
+
+        result.add(
+          MediaItem(
+            path: path,
+            createdAt: stat.modified,
+            isVideo: isVideo,
+            fileSize: stat.size,
+            fileName: fileName,
+          ),
+        );
       }
-
-      final stat = await entity.stat();
-
-      final fileName = entity.uri.pathSegments.last;
-
-      result.add(
-        MediaItem(
-          path: entity.path,
-          createdAt: stat.modified,
-          isVideo: isVideo,
-          fileSize: stat.size,
-          fileName: fileName,
-        ),
-      );
     }
+
+    //------------------------------------------------------
+    // مرتب‌سازی کلی
+    //------------------------------------------------------
 
     result.sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
     return result;
+  }
+
+  String _normalizePath(String path) {
+    var value = path.replaceAll('\\', '/').trim();
+
+    while (value.length > 1 && value.endsWith('/')) {
+      value = value.substring(0, value.length - 1);
+    }
+
+    return value.toLowerCase();
+  }
+
+  String _getFileName(String path) {
+    return path.replaceAll('\\', '/').split('/').last;
   }
 }

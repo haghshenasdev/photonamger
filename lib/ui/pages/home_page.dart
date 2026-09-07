@@ -34,10 +34,8 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final AnalysisController analysisController = AnalysisController();
-  String folderPath = "";
 
-  String selectedFolder = '';
-
+  List<String> sourcePaths = [];
   List<MediaItem> mediaItems = [];
 
   List<TimelineGroup> groups = [];
@@ -69,8 +67,22 @@ class _HomePageState extends State<HomePage> {
         header: const PageHeader(title: Text("آرشینو - مدیریت تصاویر")),
         content: Column(
           children: [
-            FolderSelector(path: folderPath, onSelect: selectFolder),
-
+            FolderSelector(
+              paths: sourcePaths,
+              onAdd: addSourceFolder,
+              onRemove: removeSourceFolder,
+            ),
+            FilledButton(
+              onPressed: sourcePaths.isEmpty ? null : scanSourceFolders,
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(FluentIcons.search, size: 16),
+                  SizedBox(width: 8),
+                  Text('شروع اسکن و آنالیز'),
+                ],
+              ),
+            ),
             const SizedBox(height: 12),
 
             Expanded(
@@ -305,32 +317,133 @@ class _HomePageState extends State<HomePage> {
     return total;
   }
 
-  Future<void> selectFolder() async {
+  Future<void> addSourceFolder() async {
     final path = await FolderService.pickFolder();
 
-    if (path == null) {
+    if (path == null || path.trim().isEmpty) {
+      return;
+    }
+
+    final normalizedPath = _normalizePath(path);
+
+    //------------------------------------------------------
+    // مسیر تکراری
+    //------------------------------------------------------
+
+    final alreadyExists = sourcePaths.any(
+      (existingPath) => _normalizePath(existingPath) == normalizedPath,
+    );
+
+    if (alreadyExists) {
+      return;
+    }
+
+    //------------------------------------------------------
+    // اگر مسیر انتخاب‌شده داخل یکی از مسیرهای قبلی است
+    //------------------------------------------------------
+
+    final insideExisting = sourcePaths.any((existingPath) {
+      return _isPathInside(normalizedPath, _normalizePath(existingPath));
+    });
+
+    if (insideExisting) {
+      return;
+    }
+
+    //------------------------------------------------------
+    // اگر مسیر جدید والد یکی از مسیرهای قبلی است،
+    // مسیرهای کوچک‌تر را حذف می‌کنیم.
+    //------------------------------------------------------
+
+    sourcePaths.removeWhere((existingPath) {
+      return _isPathInside(_normalizePath(existingPath), normalizedPath);
+    });
+
+    //------------------------------------------------------
+    // اضافه کردن
+    //------------------------------------------------------
+
+    setState(() {
+      sourcePaths.add(path);
+    });
+  }
+
+  Future<void> removeSourceFolder(String path) async {
+    setState(() {
+      sourcePaths.remove(path);
+    });
+  }
+
+  Future<void> scanSourceFolders() async {
+    if (sourcePaths.isEmpty) {
+      setState(() {
+        mediaItems = [];
+        groups = [];
+        duplicateGroups = [];
+        selectedGroup = null;
+        progress = null;
+      });
+
       return;
     }
 
     final scanner = MediaScanner();
 
-    final files = await scanner.scanFolder(path);
+    //------------------------------------------------------
+    // Scan تمام مسیرها
+    //------------------------------------------------------
+
+    final files = await scanner.scanFolders(sourcePaths);
+
+    //------------------------------------------------------
+    // Timeline اولیه
+    //------------------------------------------------------
 
     final timelineBuilder = TimelineBuilder();
 
     final generatedGroups = timelineBuilder.build(files);
 
-    setState(() {
-      folderPath = path;
+    if (!mounted) {
+      return;
+    }
 
+    setState(() {
       mediaItems = files;
 
       groups = generatedGroups;
 
+      duplicateGroups = [];
+
       selectedGroup = generatedGroups.isNotEmpty ? generatedGroups.first : null;
     });
 
+    //------------------------------------------------------
+    // Analysis
+    //------------------------------------------------------
+
     await analyze();
+  }
+
+  String _normalizePath(String path) {
+    var value = path.replaceAll('\\', '/').trim();
+
+    while (value.length > 1 && value.endsWith('/')) {
+      value = value.substring(0, value.length - 1);
+    }
+
+    return value.toLowerCase();
+  }
+
+  bool _isPathInside(String child, String parent) {
+    if (child == parent) {
+      return false;
+    }
+
+    final normalizedChild = child.endsWith('/') ? child : '$child/';
+
+    final normalizedParent = parent.endsWith('/') ? parent : '$parent/';
+
+    return normalizedChild.startsWith(normalizedParent);
   }
 
   Future<void> analyze() async {
