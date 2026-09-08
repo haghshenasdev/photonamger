@@ -41,6 +41,10 @@ class TimelineGroupCard extends StatefulWidget {
 }
 
 class _TimelineGroupCardState extends State<TimelineGroupCard> {
+  String _searchQuery = '';
+  String? _selectedCategory;
+  final TextEditingController _searchController = TextEditingController();
+
   final Set<int> expandedGroups = <int>{};
 
   final Set<int> selectedForMerge = <int>{};
@@ -55,6 +59,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
 
   @override
   void dispose() {
+    _searchController.dispose();
     for (final controller in _controllers.values) {
       controller.dispose();
     }
@@ -89,6 +94,103 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
 
   FlyoutController _flyoutControllerFor(int index) {
     return _flyoutControllers.putIfAbsent(index, () => FlyoutController());
+  }
+
+  String _normalizeSearchText(String value) {
+    return value
+        .trim()
+        .toLowerCase()
+        .replaceAll('ي', 'ی')
+        .replaceAll('ى', 'ی')
+        .replaceAll('ك', 'ک')
+        .replaceAll('ۀ', 'ه')
+        .replaceAll('ة', 'ه')
+        .replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  bool _groupMatchesSearch(TimelineGroup group) {
+    final query = _normalizeSearchText(_searchQuery);
+
+    if (query.isEmpty) {
+      return true;
+    }
+
+    final values = <String>[
+      group.title,
+      group.description,
+      group.metadataDirectory ?? '',
+    ];
+
+    // تمام بخش‌های مسیر پوشه
+    final metadataDirectory = group.metadataDirectory;
+
+    if (metadataDirectory != null && metadataDirectory.isNotEmpty) {
+      values.addAll(
+        metadataDirectory
+            .replaceAll('\\', '/')
+            .split('/')
+            .where((part) => part.trim().isNotEmpty),
+      );
+    }
+
+    // دسته‌بندی‌ها
+    for (final path in group.categories) {
+      values.addAll(path);
+    }
+
+    final searchableText = _normalizeSearchText(
+      values.where((value) => value.trim().isNotEmpty).join(' '),
+    );
+
+    return searchableText.contains(query);
+  }
+
+  bool _groupMatchesCategory(TimelineGroup group) {
+    if (_selectedCategory == null || _selectedCategory!.isEmpty) {
+      return true;
+    }
+
+    final selected = _normalizeSearchText(_selectedCategory!);
+
+    for (final path in group.categories) {
+      for (final category in path) {
+        if (_normalizeSearchText(category) == selected) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  List<String> _availableCategories() {
+    final categories = <String>{};
+
+    for (final group in widget.groups) {
+      for (final path in group.categories) {
+        for (final category in path) {
+          final value = category.trim();
+
+          if (value.isNotEmpty) {
+            categories.add(value);
+          }
+        }
+      }
+    }
+
+    final result = categories.toList();
+
+    result.sort(
+      (a, b) => _normalizeSearchText(a).compareTo(_normalizeSearchText(b)),
+    );
+
+    return result;
+  }
+
+  List<TimelineGroup> get _filteredGroups {
+    return widget.groups.where((group) {
+      return _groupMatchesSearch(group) && _groupMatchesCategory(group);
+    }).toList();
   }
 
   void _notifyUpdate(TimelineGroup group, {bool reprocess = false}) {
@@ -249,13 +351,139 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
             ),
           ),
 
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+            child: Column(
+              children: [
+                TextBox(
+                  controller: _searchController,
+                  prefix: const Padding(
+                    padding: EdgeInsetsDirectional.only(start: 8),
+                    child: Icon(FluentIcons.search, size: 15),
+                  ),
+                  placeholder: 'جستجو در نام گروه، پوشه و توضیحات...',
+                  onChanged: (value) {
+                    setState(() {
+                      _searchQuery = value;
+                    });
+                  },
+                ),
+
+                IconButton(
+                  icon: const Icon(FluentIcons.clear, size: 14),
+                  onPressed: () {
+                    _searchController.clear();
+
+                    setState(() {
+                      _searchQuery = '';
+                      _selectedCategory = null;
+                    });
+                  },
+                ),
+
+                const SizedBox(height: 8),
+
+                Row(
+                  children: [
+                    const Icon(FluentIcons.filter, size: 14),
+
+                    const SizedBox(width: 6),
+
+                    const Text('دسته‌بندی:', style: TextStyle(fontSize: 12)),
+
+                    const SizedBox(width: 8),
+
+                    Expanded(
+                      child: ComboBox<String?>(
+                        value: _selectedCategory,
+                        isExpanded: true,
+                        placeholder: const Text('همه دسته‌بندی‌ها'),
+                        items: [
+                          const ComboBoxItem<String?>(
+                            value: null,
+                            child: Text('همه دسته‌بندی‌ها'),
+                          ),
+                          ..._availableCategories().map((category) {
+                            return ComboBoxItem<String?>(
+                              value: category,
+                              child: Text(
+                                category,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            );
+                          }),
+                        ],
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedCategory = value;
+                          });
+                        },
+                      ),
+                    ),
+
+                    if (_searchQuery.isNotEmpty ||
+                        _selectedCategory != null) ...[
+                      const SizedBox(width: 6),
+                      IconButton(
+                        icon: const Icon(FluentIcons.clear, size: 14),
+                        onPressed: () {
+                          setState(() {
+                            _searchQuery = '';
+                            _selectedCategory = null;
+                          });
+                        },
+                      ),
+                    ],
+                  ],
+                ),
+
+                if (_searchQuery.isNotEmpty || _selectedCategory != null) ...[
+                  const SizedBox(height: 5),
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Text(
+                      '${_filteredGroups.length} گروه از ${widget.groups.length} گروه',
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+
           Expanded(
-            child: widget.groups.isEmpty
-                ? const Center(child: Text('گروهی یافت نشد'))
+            child: _filteredGroups.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(FluentIcons.search, size: 28),
+                        const SizedBox(height: 10),
+                        Text(
+                          widget.groups.isEmpty
+                              ? 'گروهی یافت نشد'
+                              : 'گروهی با این فیلتر پیدا نشد',
+                        ),
+                        if (_searchQuery.isNotEmpty ||
+                            _selectedCategory != null) ...[
+                          const SizedBox(height: 10),
+                          Button(
+                            onPressed: () {
+                              setState(() {
+                                _searchQuery = '';
+                                _selectedCategory = null;
+                              });
+                            },
+                            child: const Text('حذف فیلتر'),
+                          ),
+                        ],
+                      ],
+                    ),
+                  )
                 : ListView.builder(
-                    itemCount: widget.groups.length,
-                    itemBuilder: (context, index) {
-                      final group = widget.groups[index];
+                    itemCount: _filteredGroups.length,
+                    itemBuilder: (_, index) {
+                      final group = _filteredGroups[index];
 
                       final isSelected = identical(widget.selectedGroup, group);
 
