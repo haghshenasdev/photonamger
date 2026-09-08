@@ -1,19 +1,33 @@
 import '../../core/analysis/face_info.dart';
 import '../../core/analysis/photo_score.dart';
+import 'group_metadata.dart';
 
 class MediaItem {
   // ===== اطلاعات اصلی =====
 
   /// مسیر فعلی فایل.
   ///
-  /// این مقدار بعد از Copy یا Move موفقیت‌آمیز
-  /// به مسیر فایل مقصد تغییر می‌کند.
+  /// بعد از Copy یا Move موفقیت‌آمیز
+  /// به مسیر مقصد تغییر می‌کند.
   String path;
 
   final DateTime createdAt;
   final bool isVideo;
   final int fileSize;
   final String fileName;
+
+  // ===== اطلاعات گروه =====
+
+  /// Metadata پوشه‌ای که فایل داخل آن قرار دارد.
+  ///
+  /// این مقدار هنگام Analyze از
+  /// .photonamger.json خوانده می‌شود.
+  GroupMetadata? groupMetadata;
+
+  /// مسیر پوشه‌ای که metadata از آن خوانده شده.
+  String? metadataDirectory;
+
+  // ===== تحلیل =====
 
   List<FaceInfo> faces = [];
 
@@ -23,58 +37,44 @@ class MediaItem {
 
   // ===== وضعیت انتخاب =====
 
-  /// آیا برای نگهداری انتخاب شده است؟
   bool isSelected;
 
   // ===== نتایج آنالیز =====
 
-  /// آیا این فایل قبلاً آنالیز شده؟
   bool analyzed = false;
 
-  /// امتیاز نهایی کیفیت (0..100)
   double qualityScore;
 
-  /// میزان شارپنس تصویر
   double sharpness;
 
-  /// میزان تاری
   double blurScore;
 
-  /// آیا تصویر تار است؟
   bool isBlurred;
 
   // ===== اطلاعات چهره =====
 
-  /// تعداد چهره‌های پیدا شده
   int faceCount;
 
-  /// تعداد چشم‌های باز
   int openEyes;
 
-  /// میانگین کیفیت چهره‌ها
   double faceQuality;
 
-  /// بزرگترین چهره
   double largestFaceSize;
 
   // ===== اطلاعات نور =====
 
-  /// روشنایی تصویر
   double brightness;
 
-  /// کنتراست
   double contrast;
 
   // ===== اطلاعات آینده =====
 
-  /// امتیاز پیشنهادی موتور هوشمند
   double aiScore;
 
   BigInt? pHash;
 
   bool eyesOpen = false;
 
-  /// دلیل انتخاب یا رد شدن
   String analysisMessage;
 
   MediaItem({
@@ -83,6 +83,8 @@ class MediaItem {
     required this.isVideo,
     required this.fileSize,
     required this.fileName,
+    this.groupMetadata,
+    this.metadataDirectory,
     this.isSelected = true,
     this.analyzed = false,
     this.qualityScore = 0,
@@ -99,8 +101,7 @@ class MediaItem {
     this.analysisMessage = '',
   });
 
-  /// مسیر فایل را بعد از Copy یا Move موفقیت‌آمیز
-  /// به مسیر مقصد تغییر می‌دهد.
+  /// تغییر مسیر فایل بعد از Copy یا Move.
   void updatePath(String newPath) {
     path = newPath;
   }

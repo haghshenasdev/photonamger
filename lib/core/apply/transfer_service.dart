@@ -1,8 +1,10 @@
 import 'dart:io';
 
 import 'package:fgphoto/core/apply/folder_builder.dart';
+import 'package:fgphoto/core/metadata/metadata_service.dart';
 import 'package:fgphoto/ui/models/apply_settings.dart';
 import 'package:fgphoto/ui/models/duplicate_group.dart';
+import 'package:fgphoto/ui/models/group_metadata.dart';
 import 'package:fgphoto/ui/models/media_item.dart';
 import 'package:fgphoto/ui/models/timeline_group.dart';
 import 'package:path/path.dart' as p;
@@ -18,17 +20,17 @@ class TransferProgress {
     required this.fileName,
   });
 
-  double get percent => total == 0 ? 0 : current / total;
+  double get percent {
+    return total == 0 ? 0 : current / total;
+  }
 }
 
 /// نتیجه انتقال یک فایل.
-///
-/// oldPath مسیر فایل قبل از انتقال است.
-/// newPath مسیر فایل مقصد است.
-/// item همان MediaItem موجود در state برنامه است.
 class TransferResult {
   final MediaItem item;
+
   final String oldPath;
+
   final String newPath;
 
   const TransferResult({
@@ -39,6 +41,11 @@ class TransferResult {
 }
 
 class TransferService {
+  final MetadataService metadataService;
+
+  TransferService({MetadataService? metadataService})
+    : metadataService = metadataService ?? const MetadataService();
+
   Future<List<TransferResult>> execute({
     required List<TimelineGroup> groups,
     required List<DuplicateGroup> duplicateGroups,
@@ -46,11 +53,12 @@ class TransferService {
     void Function(TransferProgress progress)? onProgress,
     void Function(TransferResult result)? onItemTransferred,
   }) async {
-    //------------------------------------------------------
+    // ------------------------------------------------------
     // عکس‌های منتخب گروه‌های تکراری
-    //------------------------------------------------------
+    // ------------------------------------------------------
 
     final selectedDuplicateFiles = <String>{};
+
     final duplicateFiles = <String>{};
 
     for (final group in duplicateGroups) {
@@ -61,9 +69,9 @@ class TransferService {
       }
     }
 
-    //------------------------------------------------------
+    // ------------------------------------------------------
     // محاسبه تعداد فایل‌ها
-    //------------------------------------------------------
+    // ------------------------------------------------------
 
     int total = 0;
 
@@ -75,9 +83,9 @@ class TransferService {
       }
     }
 
-    //------------------------------------------------------
+    // ------------------------------------------------------
     // انتقال
-    //------------------------------------------------------
+    // ------------------------------------------------------
 
     int current = 0;
 
@@ -95,34 +103,34 @@ class TransferService {
         }
 
         final oldPath = item.path;
+
         final source = File(oldPath);
 
-        //--------------------------------------------------
+        // --------------------------------------------------
         // فایل مبدأ وجود ندارد
-        //--------------------------------------------------
+        // --------------------------------------------------
 
         if (!await source.exists()) {
           continue;
         }
 
-        //--------------------------------------------------
+        // --------------------------------------------------
         // مسیر مقصد
-        //--------------------------------------------------
+        // --------------------------------------------------
 
         final destinationPath = p.join(folder.path, item.fileName);
 
         final destination = File(destinationPath);
 
-        //--------------------------------------------------
+        // --------------------------------------------------
         // اگر مقصد همان فایل مبدأ است
-        //--------------------------------------------------
+        // --------------------------------------------------
 
         final normalizedSource = p.normalize(p.absolute(oldPath));
 
         final normalizedDestination = p.normalize(p.absolute(destinationPath));
 
         if (normalizedSource == normalizedDestination) {
-          // چیزی منتقل نشده، ولی مدل باید همین مسیر را نگه دارد.
           current++;
 
           final result = TransferResult(
@@ -146,19 +154,11 @@ class TransferService {
           continue;
         }
 
-        //--------------------------------------------------
+        // --------------------------------------------------
         // اگر فایل مقصد از قبل وجود دارد
-        //--------------------------------------------------
+        // --------------------------------------------------
 
         if (await destination.exists()) {
-          /*
-           * در این حالت فایل قبلی مقصد را حذف نمی‌کنیم.
-           *
-           * چون کاربر صراحتاً می‌خواهد فایل‌های قبلی
-           * دست‌نخورده باقی بمانند.
-           *
-           * بنابراین یک نام یکتا برای فایل جدید می‌سازیم.
-           */
           final uniquePath = await _createUniqueFilePath(destinationPath);
 
           await _transferFile(
@@ -174,11 +174,6 @@ class TransferService {
           );
 
           results.add(result);
-
-          //------------------------------------------------
-          // بسیار مهم:
-          // مدل را بلافاصله به مسیر جدید تغییر می‌دهیم.
-          //------------------------------------------------
 
           item.updatePath(uniquePath);
 
@@ -197,9 +192,9 @@ class TransferService {
           continue;
         }
 
-        //--------------------------------------------------
+        // --------------------------------------------------
         // انتقال عادی
-        //--------------------------------------------------
+        // --------------------------------------------------
 
         await _transferFile(
           source: source,
@@ -215,13 +210,6 @@ class TransferService {
 
         results.add(result);
 
-        //--------------------------------------------------
-        // مهم‌ترین بخش:
-        //
-        // چه Move باشد چه Copy،
-        // مسیر MediaItem را به مقصد تغییر می‌دهیم.
-        //--------------------------------------------------
-
         item.updatePath(destinationPath);
 
         onItemTransferred?.call(result);
@@ -236,14 +224,35 @@ class TransferService {
           ),
         );
       }
+
+      // ----------------------------------------------------
+      // ذخیره Metadata گروه
+      // ----------------------------------------------------
+
+      final hasMetadata =
+          timeline.categories.isNotEmpty ||
+          timeline.description.trim().isNotEmpty ||
+          timeline.metadata != null;
+
+      if (hasMetadata) {
+        final metadata = GroupMetadata(
+          categories: List<String>.from(timeline.categories),
+          description: timeline.description,
+        );
+
+        await metadataService.save(
+          directoryPath: folder.path,
+          metadata: metadata,
+        );
+      }
     }
 
     return results;
   }
 
-  //--------------------------------------------------------
+  // --------------------------------------------------------
   // انتقال فایل
-  //--------------------------------------------------------
+  // --------------------------------------------------------
 
   Future<void> _transferFile({
     required File source,
@@ -252,7 +261,6 @@ class TransferService {
   }) async {
     final destination = File(destinationPath);
 
-    // اطمینان از وجود پوشه مقصد
     await destination.parent.create(recursive: true);
 
     if (move) {
@@ -261,18 +269,14 @@ class TransferService {
       await source.copy(destinationPath);
     }
 
-    //------------------------------------------------------
-    // اطمینان از اینکه فایل مقصد واقعاً ایجاد شده است.
-    //------------------------------------------------------
-
     if (!await destination.exists()) {
       throw FileSystemException('فایل مقصد ایجاد نشد', destinationPath);
     }
   }
 
-  //--------------------------------------------------------
+  // --------------------------------------------------------
   // ساخت مسیر یکتا در صورت وجود فایل همنام
-  //--------------------------------------------------------
+  // --------------------------------------------------------
 
   Future<String> _createUniqueFilePath(String originalPath) async {
     final file = File(originalPath);
@@ -282,7 +286,9 @@ class TransferService {
     }
 
     final directory = file.parent.path;
+
     final extension = p.extension(originalPath);
+
     final basename = p.basenameWithoutExtension(originalPath);
 
     int counter = 1;
@@ -298,9 +304,9 @@ class TransferService {
     }
   }
 
-  //--------------------------------------------------------
+  // --------------------------------------------------------
   // آیا فایل باید منتقل شود؟
-  //--------------------------------------------------------
+  // --------------------------------------------------------
 
   bool _shouldTransfer(
     MediaItem item,

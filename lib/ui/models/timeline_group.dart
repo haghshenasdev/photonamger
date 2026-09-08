@@ -1,3 +1,4 @@
+import 'group_metadata.dart';
 import 'media_item.dart';
 
 class TimelineGroup {
@@ -8,6 +9,14 @@ class TimelineGroup {
   DateTime end;
 
   List<MediaItem> items;
+
+  /// Metadata ذخیره‌شده گروه.
+  ///
+  /// null یعنی این گروه هنوز metadata ندارد.
+  GroupMetadata? metadata;
+
+  /// مسیری که metadata از آن خوانده شده.
+  String? metadataDirectory;
 
   /// آیا کاربر این گروه را ویرایش کرده؟
   bool edited;
@@ -20,9 +29,19 @@ class TimelineGroup {
     required this.start,
     required this.end,
     required this.items,
-
+    this.metadata,
+    this.metadataDirectory,
     this.edited = false,
-
     this.merged = false,
   });
+
+  /// دسته‌بندی‌های گروه.
+  List<String> get categories {
+    return metadata?.categories ?? const [];
+  }
+
+  /// توضیحات گروه.
+  String get description {
+    return metadata?.description ?? '';
+  }
 }
