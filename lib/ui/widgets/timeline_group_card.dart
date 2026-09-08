@@ -1,4 +1,6 @@
 import 'package:fgphoto/core/utils/persian_date.dart';
+import 'package:fgphoto/ui/dialogs/group_metadata_dialog.dart';
+import 'package:fgphoto/ui/models/group_metadata.dart';
 import 'package:fgphoto/ui/models/timeline_group.dart';
 import 'package:fgphoto/ui/widgets/title_select_dialog.dart';
 import 'package:fgphoto/ui/widgets/title_suggestion_dialog.dart';
@@ -288,6 +290,20 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                               },
                                             ),
 
+                                            MenuFlyoutItem(
+                                              leading: const Icon(
+                                                FluentIcons.info,
+                                              ),
+                                              text: const Text('اطلاعات گروه'),
+                                              onPressed: () {
+                                                Navigator.pop(context);
+
+                                                _editGroupMetadata(group);
+
+                                                widget.onGroupSelected(group);
+                                              },
+                                            ),
+
                                             MenuFlyoutSeparator(),
 
                                             MenuFlyoutItem(
@@ -364,25 +380,75 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                                   fontSize: 11,
                                                 ),
                                               ),
+
+                                              if (group
+                                                  .categories
+                                                  .isNotEmpty) ...[
+                                                const SizedBox(height: 5),
+
+                                                Row(
+                                                  children: [
+                                                    const Icon(
+                                                      FluentIcons.folder,
+                                                      size: 12,
+                                                    ),
+
+                                                    const SizedBox(width: 4),
+
+                                                    Expanded(
+                                                      child: Text(
+                                                        group.categories.join(
+                                                          ' > ',
+                                                        ),
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                        style: TextStyle(
+                                                          fontSize: 11,
+                                                          color: Colors.blue,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ],
                                             ],
                                           ),
                                         ),
 
-                                        IconButton(
-                                          icon: Icon(
-                                            isExpanded
-                                                ? FluentIcons.chevron_up
-                                                : FluentIcons.chevron_down,
-                                          ),
-                                          onPressed: () {
-                                            setState(() {
-                                              if (isExpanded) {
-                                                expandedGroups.remove(index);
-                                              } else {
-                                                expandedGroups.add(index);
-                                              }
-                                            });
-                                          },
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            IconButton(
+                                              icon: Icon(
+                                                group.metadata == null
+                                                    ? FluentIcons.info
+                                                    : FluentIcons.info_solid,
+                                              ),
+                                              onPressed: () {
+                                                _editGroupMetadata(group);
+                                              },
+                                            ),
+
+                                            IconButton(
+                                              icon: Icon(
+                                                isExpanded
+                                                    ? FluentIcons.chevron_up
+                                                    : FluentIcons.chevron_down,
+                                              ),
+                                              onPressed: () {
+                                                setState(() {
+                                                  if (isExpanded) {
+                                                    expandedGroups.remove(
+                                                      index,
+                                                    );
+                                                  } else {
+                                                    expandedGroups.add(index);
+                                                  }
+                                                });
+                                              },
+                                            ),
+                                          ],
                                         ),
                                       ],
                                     ),
@@ -427,6 +493,53 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                             ),
                                           ),
 
+                                          const SizedBox(height: 8),
+
+                                          Row(
+                                            children: [
+                                              FilledButton(
+                                                onPressed: () {
+                                                  _editGroupMetadata(group);
+                                                },
+                                                child: Row(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    Icon(
+                                                      group.metadata == null
+                                                          ? FluentIcons.add
+                                                          : FluentIcons.edit,
+                                                      size: 14,
+                                                    ),
+                                                    const SizedBox(width: 6),
+                                                    Text(
+                                                      group.metadata == null
+                                                          ? 'افزودن اطلاعات گروه'
+                                                          : 'ویرایش اطلاعات گروه',
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+
+                                              const SizedBox(width: 8),
+
+                                              if (group.categories.isNotEmpty)
+                                                Expanded(
+                                                  child: Text(
+                                                    group.categories.join(
+                                                      ' > ',
+                                                    ),
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      color: Colors.blue,
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
                                           IconButton(
                                             icon: const Icon(FluentIcons.more),
 
@@ -560,5 +673,28 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
         ],
       ),
     );
+  }
+
+  Future<void> _editGroupMetadata(TimelineGroup group) async {
+    final result = await showDialog<GroupMetadata>(
+      context: context,
+      builder: (_) {
+        return GroupMetadataDialog(
+          groupTitle: group.title,
+          metadata: group.metadata,
+        );
+      },
+    );
+
+    if (result == null) {
+      return;
+    }
+
+    setState(() {
+      group.metadata = result;
+      group.edited = true;
+    });
+
+    _notifyUpdate(group);
   }
 }
