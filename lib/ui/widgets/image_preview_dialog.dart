@@ -191,25 +191,21 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
                   ),
                 ),
 
-              Positioned(
-                bottom: 10,
-                left: 10,
-                right: 10,
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  color: Colors.black.withAlpha(180),
-                  child: Text(
-                    current.isMedia
-                        ? current.media!.fileName
-                        : current
-                              .duplicate!
-                              .items[current.duplicate!.selectedIndex]
-                              .fileName,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white),
-                  ),
+              if (current.isMedia && current.media!.isVideo)
+                Positioned(
+                  top: 10,
+                  left: 10,
+                  right: 10,
+                  child: _buildVideoFileName(),
                 ),
-              ),
+
+              if (!(current.isMedia && current.media!.isVideo))
+                Positioned(
+                  bottom: 10,
+                  left: 10,
+                  right: 10,
+                  child: _buildFileName(),
+                ),
             ],
           ),
         ),
@@ -223,11 +219,66 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
     );
   }
 
+  Widget _buildVideoFileName() {
+    return IgnorePointer(
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 700),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.70),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(FluentIcons.video, color: Colors.white, size: 16),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  current.media!.fileName,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFileName() {
+    final fileName = current.isMedia
+        ? current.media!.fileName
+        : current.duplicate!.items[current.duplicate!.selectedIndex].fileName;
+
+    return Container(
+      padding: const EdgeInsets.all(8),
+      color: Colors.black.withAlpha(180),
+      child: Text(
+        fileName,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(color: Colors.white),
+      ),
+    );
+  }
+
   Widget _buildMedia() {
     final item = current.media!;
 
     if (item.isVideo) {
-      return VideoPreview(path: item.path);
+      return VideoPreview(
+        path: item.path,
+        onFullscreen: () {
+          _openFullscreenVideo(item.path);
+        },
+      );
     }
 
     return Stack(
@@ -255,6 +306,20 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
         ),
       ],
     );
+  }
+
+  Future<void> _openFullscreenVideo(String path) async {
+    await showDialog(
+      context: context,
+      barrierColor: Colors.black,
+      builder: (_) {
+        return _FullscreenVideoDialog(path: path);
+      },
+    );
+
+    if (!mounted) return;
+
+    _focusNode.requestFocus();
   }
 
   Widget _buildDuplicate() {
@@ -402,6 +467,64 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _FullscreenVideoDialog extends StatefulWidget {
+  final String path;
+
+  const _FullscreenVideoDialog({required this.path});
+
+  @override
+  State<_FullscreenVideoDialog> createState() => _FullscreenVideoDialogState();
+}
+
+class _FullscreenVideoDialogState extends State<_FullscreenVideoDialog> {
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      autofocus: true,
+      onKeyEvent: (_, event) {
+        if (event is KeyDownEvent &&
+            event.logicalKey == LogicalKeyboardKey.escape) {
+          Navigator.pop(context);
+          return KeyEventResult.handled;
+        }
+
+        return KeyEventResult.ignored;
+      },
+      child: Container(
+        color: Colors.black,
+        width: double.infinity,
+        height: double.infinity,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            VideoPreview(
+              path: widget.path,
+              onFullscreen: () {
+                Navigator.pop(context);
+              },
+            ),
+
+            Positioned(
+              top: 12,
+              right: 12,
+              child: IconButton(
+                icon: const Icon(
+                  FluentIcons.chrome_close,
+                  color: Colors.white,
+                  size: 18,
+                ),
+                onPressed: () {
+                  Navigator.pop(context);
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

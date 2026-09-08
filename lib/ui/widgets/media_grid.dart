@@ -5,6 +5,7 @@ import 'package:fgphoto/ui/models/media_item.dart';
 import 'package:fgphoto/ui/models/preview_item.dart';
 import 'package:fgphoto/ui/widgets/duplicate_stack_tile.dart';
 import 'package:fgphoto/ui/widgets/image_preview_dialog.dart';
+import 'package:fgphoto/ui/widgets/video_thumbnail.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 class MediaGrid extends StatelessWidget {
@@ -52,7 +53,11 @@ class MediaGrid extends StatelessWidget {
             );
           }
 
-          return _MediaTile(item: item.media!, previewItems: previewItems,onChanged: onChanged,);
+          return _MediaTile(
+            item: item.media!,
+            previewItems: previewItems,
+            onChanged: onChanged,
+          );
         },
       ),
     );
@@ -65,7 +70,11 @@ class _MediaTile extends StatelessWidget {
   final List<PreviewItem> previewItems;
   final VoidCallback? onChanged;
 
-  const _MediaTile({required this.item, required this.previewItems,this.onChanged,});
+  const _MediaTile({
+    required this.item,
+    required this.previewItems,
+    this.onChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -95,12 +104,7 @@ class _MediaTile extends StatelessWidget {
           children: [
             if (!item.isVideo) Image.file(File(item.path), fit: BoxFit.cover),
 
-            if (item.isVideo)
-              Container(
-                color: Colors.grey[80],
-
-                child: const Center(child: Icon(FluentIcons.video, size: 40)),
-              ),
+            if (item.isVideo) VideoThumbnail(path: item.path),
 
             Positioned(
               bottom: 0,

@@ -7,8 +7,9 @@ import 'package:video_player/video_player.dart';
 
 class VideoPreview extends StatefulWidget {
   final String path;
+  final VoidCallback? onFullscreen;
 
-  const VideoPreview({super.key, required this.path});
+  const VideoPreview({super.key, required this.path, this.onFullscreen});
 
   @override
   State<VideoPreview> createState() => _VideoPreviewState();
@@ -282,7 +283,9 @@ class _VideoPreviewState extends State<VideoPreview> {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: _toggleControls,
-        onDoubleTap: _toggleFullscreen,
+        onDoubleTap: () {
+          widget.onFullscreen?.call();
+        },
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -421,7 +424,7 @@ class _VideoPreviewState extends State<VideoPreview> {
                         : FluentIcons.full_screen,
                     color: Colors.white,
                   ),
-                  onPressed: _toggleFullscreen,
+                  onPressed: widget.onFullscreen,
                 ),
               ],
             ),
