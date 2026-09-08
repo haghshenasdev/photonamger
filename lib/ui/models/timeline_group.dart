@@ -10,17 +10,15 @@ class TimelineGroup {
 
   List<MediaItem> items;
 
-  /// اطلاعات اضافی گروه.
-  ///
-  /// این اطلاعات در فایل .photonamger.json ذخیره می‌شوند.
   GroupMetadata? metadata;
 
-  /// آیا اطلاعات این گروه توسط کاربر تغییر کرده است؟
+  /// مسیر پوشه‌ای که metadata از آن خوانده شده.
   ///
-  /// برای تشخیص اینکه نیاز به ذخیره دارد استفاده می‌شود.
+  /// این مسیر برای گروه‌های موجود در Source استفاده می‌شود.
+  String? metadataDirectory;
+
   bool edited;
 
-  /// آیا این گروه Merge شده؟
   bool merged;
 
   TimelineGroup({
@@ -29,21 +27,19 @@ class TimelineGroup {
     required this.end,
     required this.items,
     this.metadata,
+    this.metadataDirectory,
     this.edited = false,
     this.merged = false,
   });
 
-  /// دسته‌بندی‌های گروه.
-  List<String> get categories {
-    return metadata?.categories ?? const <String>[];
+  List<List<String>> get categories {
+    return metadata?.categories ?? const [];
   }
 
-  /// توضیحات گروه.
   String get description {
     return metadata?.description ?? '';
   }
 
-  /// تنظیم متادیتای گروه.
   void setMetadata(GroupMetadata value) {
     metadata = value;
     edited = true;

@@ -1,3 +1,4 @@
+import '../ui/models/group_metadata.dart';
 import '../ui/models/media_item.dart';
 import '../ui/models/timeline_group.dart';
 
@@ -11,7 +12,6 @@ class TimelineBuilder {
       return <TimelineGroup>[];
     }
 
-    // بر اساس تاریخ ایجاد مرتب می‌کنیم.
     items.sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
     final gapMinutes = gap.inMinutes;
@@ -30,12 +30,10 @@ class TimelineBuilder {
 
       final diff = currentItem.createdAt.difference(previous.createdAt);
 
-      // اگر فاصله زمانی بیشتر از مقدار تعیین‌شده باشد،
-      // گروه جدید ایجاد می‌کنیم.
-      if (diff.inMinutes > gapMinutes) {
-        final group = _createGroup(groups.length + 1, current);
+      final metadataBoundary = _hasMetadataBoundary(previous, currentItem);
 
-        groups.add(group);
+      if (diff.inMinutes > gapMinutes || metadataBoundary) {
+        groups.add(_createGroup(groups.length + 1, current));
 
         current = <MediaItem>[];
       }
@@ -43,11 +41,8 @@ class TimelineBuilder {
       current.add(currentItem);
     }
 
-    // آخرین گروه
     if (current.isNotEmpty) {
-      final group = _createGroup(groups.length + 1, current);
-
-      groups.add(group);
+      groups.add(_createGroup(groups.length + 1, current));
     }
 
     onProgress?.call(items.length, items.length, 'دسته‌بندی زمانی پایان یافت');
@@ -55,13 +50,81 @@ class TimelineBuilder {
     return groups;
   }
 
+  bool _hasMetadataBoundary(MediaItem previous, MediaItem current) {
+    final previousDirectory = previous.metadataDirectory;
+
+    final currentDirectory = current.metadataDirectory;
+
+    if (previousDirectory == null && currentDirectory == null) {
+      return false;
+    }
+
+    if (previousDirectory == null || currentDirectory == null) {
+      return true;
+    }
+
+    return !_samePath(previousDirectory, currentDirectory);
+  }
+
+  bool _samePath(String a, String b) {
+    final first = a.replaceAll('\\', '/').toLowerCase();
+
+    final second = b.replaceAll('\\', '/').toLowerCase();
+
+    return first == second;
+  }
+
   TimelineGroup _createGroup(int index, List<MediaItem> items) {
+    final metadata = _resolveMetadata(items);
+
+    final metadataDirectory = _resolveMetadataDirectory(items);
+
     return TimelineGroup(
-      title: 'گروه $index',
+      title: metadataDirectory != null
+          ? _directoryName(metadataDirectory)
+          : 'گروه $index',
+
       start: items.first.createdAt,
+
       end: items.last.createdAt,
+
       items: List<MediaItem>.from(items),
+
+      metadata: metadata,
+
+      metadataDirectory: metadataDirectory,
     );
+  }
+
+  GroupMetadata? _resolveMetadata(List<MediaItem> items) {
+    for (final item in items) {
+      if (item.groupMetadata != null) {
+        return item.groupMetadata;
+      }
+    }
+
+    return null;
+  }
+
+  String? _resolveMetadataDirectory(List<MediaItem> items) {
+    final directories = items
+        .map((item) => item.metadataDirectory)
+        .whereType<String>()
+        .toSet();
+
+    if (directories.length == 1) {
+      return directories.first;
+    }
+
+    return null;
+  }
+
+  String _directoryName(String directoryPath) {
+    return directoryPath
+        .replaceAll('\\', '/')
+        .split('/')
+        .where((e) => e.isNotEmpty)
+        .last;
   }
 
   List<TimelineGroup> rebuild(List<MediaItem> items) {
@@ -89,6 +152,7 @@ class TimelineBuilder {
       end: items.last.createdAt,
       items: items,
       metadata: null,
+      metadataDirectory: null,
       merged: true,
     );
   }

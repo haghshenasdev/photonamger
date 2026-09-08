@@ -12,35 +12,51 @@ class CategoryTreeBuilder {
         continue;
       }
 
-      var currentLevel = roots;
-
-      for (final rawCategory in group.categories) {
-        final category = rawCategory.trim();
-
-        if (category.isEmpty) {
+      // هر category یک مسیر مستقل است.
+      //
+      // مثال:
+      //
+      // [
+      //   ['گرگاب', 'ملاقات'],
+      //   ['تست', 'تستی'],
+      // ]
+      //
+      // بنابراین دو مسیر مستقل در Tree ساخته می‌شود.
+      for (final categoryPath in group.categories) {
+        if (categoryPath.isEmpty) {
           continue;
         }
 
-        CategoryNode? node;
+        var currentLevel = roots;
 
-        for (final child in currentLevel) {
-          if (child.name == category) {
-            node = child;
-            break;
+        for (final rawCategory in categoryPath) {
+          final category = rawCategory.trim();
+
+          if (category.isEmpty) {
+            continue;
           }
+
+          CategoryNode? node;
+
+          for (final child in currentLevel) {
+            if (child.name == category) {
+              node = child;
+              break;
+            }
+          }
+
+          if (node == null) {
+            node = CategoryNode(name: category);
+
+            currentLevel.add(node);
+          }
+
+          if (!node.groupIndexes.contains(groupIndex)) {
+            node.groupIndexes.add(groupIndex);
+          }
+
+          currentLevel = node.children;
         }
-
-        if (node == null) {
-          node = CategoryNode(name: category);
-
-          currentLevel.add(node);
-        }
-
-        if (!node.groupIndexes.contains(groupIndex)) {
-          node.groupIndexes.add(groupIndex);
-        }
-
-        currentLevel = node.children;
       }
     }
 

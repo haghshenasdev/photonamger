@@ -43,35 +43,23 @@ class TransferResult {
 class TransferService {
   final MetadataService metadataService;
 
-  TransferService({
-    MetadataService? metadataService,
-  }) : metadataService =
-            metadataService ?? const MetadataService();
+  TransferService({MetadataService? metadataService})
+    : metadataService = metadataService ?? const MetadataService();
 
   // ============================================================
   // ذخیره فقط Metadata
   // ============================================================
 
-  /// فقط اطلاعات گروه‌ها را در پوشه مقصد ذخیره می‌کند.
+  /// فقط اطلاعات گروه‌ها را ذخیره می‌کند.
   ///
-  /// هیچ عکس یا ویدیویی:
-  /// - کپی نمی‌شود
-  /// - Move نمی‌شود
-  /// - حذف نمی‌شود
-  /// - مسیرش تغییر نمی‌کند
-  ///
-  /// فقط پوشه مقصد ساخته شده و فایل:
-  ///
-  /// .photonamger.json
-  ///
-  /// داخل آن قرار می‌گیرد.
+  /// هیچ عکس یا ویدیویی منتقل یا کپی نمی‌شود.
   Future<void> saveMetadataOnly({
     required List<TimelineGroup> groups,
     required ApplySettings settings,
     void Function(int current, int total)? onProgress,
   }) async {
     final editableGroups = groups.where((group) {
-      return group.edited || group.metadata != null;
+      return group.edited;
     }).toList();
 
     if (editableGroups.isEmpty) {
@@ -79,6 +67,7 @@ class TransferService {
     }
 
     int current = 0;
+
     final total = editableGroups.length;
 
     for (final group in editableGroups) {
@@ -88,7 +77,9 @@ class TransferService {
       );
 
       final metadata = GroupMetadata(
-        categories: List<String>.from(group.categories),
+        categories: group.categories
+            .map((path) => List<String>.from(path))
+            .toList(),
         description: group.description,
       );
 
@@ -101,10 +92,7 @@ class TransferService {
 
       current++;
 
-      onProgress?.call(
-        current,
-        total,
-      );
+      onProgress?.call(current, total);
     }
   }
 
@@ -119,11 +107,12 @@ class TransferService {
     void Function(TransferProgress progress)? onProgress,
     void Function(TransferResult result)? onItemTransferred,
   }) async {
-    // ------------------------------------------------------
-    // عکس‌های منتخب گروه‌های تکراری
-    // ------------------------------------------------------
+    // ----------------------------------------------------------
+    // فایل‌های گروه‌های تکراری
+    // ----------------------------------------------------------
 
     final selectedDuplicateFiles = <String>{};
+
     final duplicateFiles = <String>{};
 
     for (final group in duplicateGroups) {
@@ -134,27 +123,23 @@ class TransferService {
       }
     }
 
-    // ------------------------------------------------------
-    // محاسبه تعداد فایل‌ها
-    // ------------------------------------------------------
+    // ----------------------------------------------------------
+    // تعداد فایل‌ها
+    // ----------------------------------------------------------
 
     int total = 0;
 
     for (final timeline in groups) {
       for (final item in timeline.items) {
-        if (_shouldTransfer(
-          item,
-          duplicateFiles,
-          selectedDuplicateFiles,
-        )) {
+        if (_shouldTransfer(item, duplicateFiles, selectedDuplicateFiles)) {
           total++;
         }
       }
     }
 
-    // ------------------------------------------------------
+    // ----------------------------------------------------------
     // انتقال
-    // ------------------------------------------------------
+    // ----------------------------------------------------------
 
     int current = 0;
 
@@ -167,11 +152,7 @@ class TransferService {
       );
 
       for (final item in timeline.items) {
-        if (!_shouldTransfer(
-          item,
-          duplicateFiles,
-          selectedDuplicateFiles,
-        )) {
+        if (!_shouldTransfer(item, duplicateFiles, selectedDuplicateFiles)) {
           continue;
         }
 
@@ -179,36 +160,29 @@ class TransferService {
 
         final source = File(oldPath);
 
-        // --------------------------------------------------
-        // فایل مبدأ وجود ندارد
-        // --------------------------------------------------
+        // ------------------------------------------------------
+        // فایل وجود ندارد
+        // ------------------------------------------------------
 
         if (!await source.exists()) {
           continue;
         }
 
-        // --------------------------------------------------
+        // ------------------------------------------------------
         // مسیر مقصد
-        // --------------------------------------------------
+        // ------------------------------------------------------
 
-        final destinationPath = p.join(
-          folder.path,
-          item.fileName,
-        );
+        final destinationPath = p.join(folder.path, item.fileName);
 
         final destination = File(destinationPath);
 
-        // --------------------------------------------------
+        // ------------------------------------------------------
         // اگر مقصد همان فایل مبدأ است
-        // --------------------------------------------------
+        // ------------------------------------------------------
 
-        final normalizedSource = p.normalize(
-          p.absolute(oldPath),
-        );
+        final normalizedSource = p.normalize(p.absolute(oldPath));
 
-        final normalizedDestination = p.normalize(
-          p.absolute(destinationPath),
-        );
+        final normalizedDestination = p.normalize(p.absolute(destinationPath));
 
         if (normalizedSource == normalizedDestination) {
           current++;
@@ -234,64 +208,35 @@ class TransferService {
           continue;
         }
 
-        // --------------------------------------------------
-        // اگر فایل مقصد از قبل وجود دارد
-        // --------------------------------------------------
+        // ------------------------------------------------------
+        // فایل مقصد قبلاً وجود دارد
+        // ------------------------------------------------------
+
+        String finalDestination = destinationPath;
 
         if (await destination.exists()) {
-          final uniquePath =
-              await _createUniqueFilePath(destinationPath);
-
-          await _transferFile(
-            source: source,
-            destinationPath: uniquePath,
-            move: settings.moveFiles,
-          );
-
-          final result = TransferResult(
-            item: item,
-            oldPath: oldPath,
-            newPath: uniquePath,
-          );
-
-          results.add(result);
-
-          item.updatePath(uniquePath);
-
-          onItemTransferred?.call(result);
-
-          current++;
-
-          onProgress?.call(
-            TransferProgress(
-              current: current,
-              total: total,
-              fileName: item.fileName,
-            ),
-          );
-
-          continue;
+          finalDestination = await _createUniqueFilePath(destinationPath);
         }
 
-        // --------------------------------------------------
-        // انتقال عادی
-        // --------------------------------------------------
+        // ------------------------------------------------------
+        // انتقال
+        // ------------------------------------------------------
 
         await _transferFile(
           source: source,
-          destinationPath: destinationPath,
+          destinationPath: finalDestination,
           move: settings.moveFiles,
         );
 
         final result = TransferResult(
           item: item,
           oldPath: oldPath,
-          newPath: destinationPath,
+          newPath: finalDestination,
         );
 
         results.add(result);
 
-        item.updatePath(destinationPath);
+        item.updatePath(finalDestination);
 
         onItemTransferred?.call(result);
 
@@ -306,20 +251,15 @@ class TransferService {
         );
       }
 
-      // ----------------------------------------------------
+      // --------------------------------------------------------
       // ذخیره Metadata بعد از انتقال گروه
-      // ----------------------------------------------------
+      // --------------------------------------------------------
 
-      final hasMetadata =
-          timeline.categories.isNotEmpty ||
-          timeline.description.trim().isNotEmpty ||
-          timeline.metadata != null;
-
-      if (hasMetadata) {
+      if (timeline.metadata != null || timeline.edited) {
         final metadata = GroupMetadata(
-          categories: List<String>.from(
-            timeline.categories,
-          ),
+          categories: timeline.categories
+              .map((path) => List<String>.from(path))
+              .toList(),
           description: timeline.description,
         );
 
@@ -346,9 +286,7 @@ class TransferService {
   }) async {
     final destination = File(destinationPath);
 
-    await destination.parent.create(
-      recursive: true,
-    );
+    await destination.parent.create(recursive: true);
 
     if (move) {
       await source.rename(destinationPath);
@@ -358,12 +296,10 @@ class TransferService {
   }
 
   // ============================================================
-  // ساخت مسیر یکتا
+  // مسیر یکتا
   // ============================================================
 
-  Future<String> _createUniqueFilePath(
-    String originalPath,
-  ) async {
+  Future<String> _createUniqueFilePath(String originalPath) async {
     final file = File(originalPath);
 
     if (!await file.exists()) {
@@ -374,9 +310,7 @@ class TransferService {
 
     final extension = p.extension(file.path);
 
-    final baseName = p.basenameWithoutExtension(
-      file.path,
-    );
+    final baseName = p.basenameWithoutExtension(file.path);
 
     int counter = 1;
 
@@ -395,7 +329,7 @@ class TransferService {
   }
 
   // ============================================================
-  // تشخیص اینکه فایل باید منتقل شود یا خیر
+  // آیا فایل باید منتقل شود؟
   // ============================================================
 
   bool _shouldTransfer(

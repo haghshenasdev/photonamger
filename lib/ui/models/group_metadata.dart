@@ -1,17 +1,20 @@
 import 'dart:convert';
 
 class GroupMetadata {
-  static const int currentVersion = 1;
+  static const int currentVersion = 2;
 
   final int version;
 
-  /// مسیر دسته‌بندی.
+  /// مسیرهای دسته‌بندی انتخاب‌شده.
   ///
   /// مثال:
-  /// ["سفر", "ایران", "شمال"]
-  final List<String> categories;
+  ///
+  /// [
+  ///   ['گرگاب', 'ملاقات'],
+  ///   ['تست', 'تستی'],
+  /// ]
+  final List<List<String>> categories;
 
-  /// توضیحات گروه.
   final String description;
 
   const GroupMetadata({
@@ -22,7 +25,7 @@ class GroupMetadata {
 
   GroupMetadata copyWith({
     int? version,
-    List<String>? categories,
+    List<List<String>>? categories,
     String? description,
   }) {
     return GroupMetadata(
@@ -43,21 +46,40 @@ class GroupMetadata {
   factory GroupMetadata.fromJson(Map<String, dynamic> json) {
     final rawCategories = json['categories'];
 
-    final categories = <String>[];
+    final categories = <List<String>>[];
 
     if (rawCategories is List) {
-      for (final value in rawCategories) {
-        if (value is! String) {
+      for (final rawPath in rawCategories) {
+        // فرمت جدید:
+        //
+        // ["گرگاب", "ملاقات"]
+        //
+        if (rawPath is List) {
+          final path = rawPath
+              .whereType<String>()
+              .map((e) => e.trim())
+              .where((e) => e.isNotEmpty)
+              .toList();
+
+          if (path.isNotEmpty) {
+            categories.add(path);
+          }
+
           continue;
         }
 
-        final text = value.trim();
+        // سازگاری با نسخه قبلی:
+        //
+        // ["سفر", "ایران", "شمال"]
+        //
+        // هر مقدار را یک مسیر تک‌سطحی در نظر می‌گیریم.
+        if (rawPath is String) {
+          final value = rawPath.trim();
 
-        if (text.isEmpty) {
-          continue;
+          if (value.isNotEmpty) {
+            categories.add([value]);
+          }
         }
-
-        categories.add(text);
       }
     }
 

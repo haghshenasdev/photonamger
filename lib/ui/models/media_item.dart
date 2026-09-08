@@ -2,6 +2,7 @@ import '../../core/analysis/face_info.dart';
 import '../../core/analysis/photo_score.dart';
 import 'group_metadata.dart';
 
+
 class MediaItem {
   // ===== اطلاعات اصلی =====
 

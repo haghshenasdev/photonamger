@@ -3,7 +3,6 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 class GroupMetadataDialog extends StatefulWidget {
   final String groupTitle;
-
   final GroupMetadata? metadata;
 
   const GroupMetadataDialog({
@@ -19,7 +18,7 @@ class GroupMetadataDialog extends StatefulWidget {
 class _GroupMetadataDialogState extends State<GroupMetadataDialog> {
   late final TextEditingController _descriptionController;
 
-  late List<TextEditingController> _categoryControllers;
+  late List<List<TextEditingController>> _categoryControllers;
 
   @override
   void initState() {
@@ -29,43 +28,78 @@ class _GroupMetadataDialogState extends State<GroupMetadataDialog> {
       text: widget.metadata?.description ?? '',
     );
 
-    final categories = widget.metadata?.categories ?? const <String>[];
+    final paths = widget.metadata?.categories ?? const [];
 
-    _categoryControllers = categories
-        .map((category) => TextEditingController(text: category))
-        .toList();
+    _categoryControllers = paths.map((path) {
+      return path.map((value) => TextEditingController(text: value)).toList();
+    }).toList();
   }
 
   @override
   void dispose() {
     _descriptionController.dispose();
 
-    for (final controller in _categoryControllers) {
-      controller.dispose();
+    for (final path in _categoryControllers) {
+      for (final controller in path) {
+        controller.dispose();
+      }
     }
 
     super.dispose();
   }
 
-  void _addCategory() {
+  void _addCategoryPath() {
     setState(() {
-      _categoryControllers.add(TextEditingController());
+      _categoryControllers.add([TextEditingController()]);
     });
   }
 
-  void _removeCategory(int index) {
-    final controller = _categoryControllers.removeAt(index);
+  void _addLevel(int pathIndex) {
+    setState(() {
+      _categoryControllers[pathIndex].add(TextEditingController());
+    });
+  }
+
+  void _removeLevel(int pathIndex, int levelIndex) {
+    final path = _categoryControllers[pathIndex];
+
+    if (path.length == 1) {
+      _removeCategoryPath(pathIndex);
+      return;
+    }
+
+    final controller = path.removeAt(levelIndex);
 
     controller.dispose();
 
     setState(() {});
   }
 
-  List<String> _getCategories() {
-    return _categoryControllers
-        .map((controller) => controller.text.trim())
-        .where((value) => value.isNotEmpty)
-        .toList();
+  void _removeCategoryPath(int pathIndex) {
+    final path = _categoryControllers.removeAt(pathIndex);
+
+    for (final controller in path) {
+      controller.dispose();
+    }
+
+    setState(() {});
+  }
+
+  List<List<String>> _getCategories() {
+    final result = <List<String>>[];
+
+    for (final path in _categoryControllers) {
+      final values = path
+          .map((controller) => controller.text.trim())
+          .where((value) => value.isNotEmpty)
+          .toList();
+
+      if (values.isNotEmpty) {
+        result.add(values);
+      }
+    }
+
+    return result;
   }
 
   void _save() {
@@ -80,7 +114,8 @@ class _GroupMetadataDialogState extends State<GroupMetadataDialog> {
   @override
   Widget build(BuildContext context) {
     return ContentDialog(
-      constraints: const BoxConstraints(maxWidth: 650, maxHeight: 700),
+      constraints: const BoxConstraints(maxWidth: 700, maxHeight: 750),
+
       title: Row(
         children: [
           const Icon(FluentIcons.folder_open, size: 20),
@@ -88,13 +123,11 @@ class _GroupMetadataDialogState extends State<GroupMetadataDialog> {
           Expanded(child: Text('اطلاعات گروه')),
         ],
       ),
+
       content: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // --------------------------------------------------
-            // نام گروه
-            // --------------------------------------------------
             InfoLabel(
               label: 'گروه',
               child: Container(
@@ -114,24 +147,21 @@ class _GroupMetadataDialogState extends State<GroupMetadataDialog> {
               ),
             ),
 
-            const SizedBox(height: 20),
+            const SizedBox(height: 24),
 
-            // --------------------------------------------------
-            // دسته‌بندی
-            // --------------------------------------------------
             const Text(
-              'دسته‌بندی',
+              'دسته‌بندی‌ها',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
             ),
 
             const SizedBox(height: 5),
 
             Text(
-              'ترتیب موارد از دسته اصلی به دسته فرعی است.',
+              'برای هر دسته‌بندی می‌توانی چند سطح تعریف کنی و چند مسیر مختلف را همزمان انتخاب کنی.',
               style: TextStyle(fontSize: 12, color: Colors.grey[100]),
             ),
 
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
 
             if (_categoryControllers.isEmpty)
               Container(
@@ -140,103 +170,60 @@ class _GroupMetadataDialogState extends State<GroupMetadataDialog> {
                   border: Border.all(color: Colors.grey[60]),
                   borderRadius: BorderRadius.circular(6),
                 ),
-                child: const Text('برای این گروه هنوز دسته‌بندی ثبت نشده است.'),
+                child: const Text('هنوز دسته‌بندی انتخاب نشده است.'),
               ),
 
-            for (int index = 0; index < _categoryControllers.length; index++)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 28,
-                      height: 28,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: Colors.blue,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Text(
-                        '${index + 1}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
+            for (
+              int pathIndex = 0;
+              pathIndex < _categoryControllers.length;
+              pathIndex++
+            )
+              _buildCategoryPath(pathIndex),
 
-                    const SizedBox(width: 8),
-
-                    Expanded(
-                      child: TextBox(
-                        controller: _categoryControllers[index],
-                        placeholder: index == 0 ? 'مثلاً سفر' : 'مثلاً ایران',
-                      ),
-                    ),
-
-                    const SizedBox(width: 4),
-
-                    IconButton(
-                      icon: const Icon(FluentIcons.delete),
-                      onPressed: () {
-                        _removeCategory(index);
-                      },
-                    ),
-                  ],
-                ),
-              ),
-
-            const SizedBox(height: 4),
+            const SizedBox(height: 8),
 
             Button(
-              onPressed: _addCategory,
+              onPressed: _addCategoryPath,
               child: const Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(FluentIcons.add, size: 14),
                   SizedBox(width: 6),
-                  Text('افزودن سطح دسته‌بندی'),
+                  Text('افزودن دسته‌بندی'),
                 ],
               ),
             ),
 
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
 
-            // --------------------------------------------------
-            // Preview مسیر
-            // --------------------------------------------------
-            if (_categoryControllers.isNotEmpty)
-              ValueListenableBuilder<TextEditingValue>(
-                valueListenable: _categoryControllers.first,
-                builder: (context, value, child) {
-                  final categories = _getCategories();
-
-                  if (categories.isEmpty) {
-                    return const SizedBox();
-                  }
-
-                  return Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[20],
-                      borderRadius: BorderRadius.circular(6),
+            if (_getCategories().isNotEmpty)
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[20],
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'دسته‌بندی‌های انتخاب‌شده',
+                      style: TextStyle(fontWeight: FontWeight.bold),
                     ),
-                    child: Row(
-                      children: [
-                        const Icon(FluentIcons.folder, size: 16),
-                        const SizedBox(width: 8),
-                        Expanded(child: Text(categories.join('  >  '))),
-                      ],
-                    ),
-                  );
-                },
+
+                    const SizedBox(height: 8),
+
+                    for (final path in _getCategories())
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 5),
+                        child: Text(path.join('  >  ')),
+                      ),
+                  ],
+                ),
               ),
 
             const SizedBox(height: 24),
 
-            // --------------------------------------------------
-            // توضیحات
-            // --------------------------------------------------
             const Text(
               'توضیحات',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
@@ -253,6 +240,7 @@ class _GroupMetadataDialogState extends State<GroupMetadataDialog> {
           ],
         ),
       ),
+
       actions: [
         Button(
           onPressed: () {
@@ -260,6 +248,7 @@ class _GroupMetadataDialogState extends State<GroupMetadataDialog> {
           },
           child: const Text('انصراف'),
         ),
+
         FilledButton(
           onPressed: _save,
           child: const Row(
@@ -272,6 +261,114 @@ class _GroupMetadataDialogState extends State<GroupMetadataDialog> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildCategoryPath(int pathIndex) {
+    final path = _categoryControllers[pathIndex];
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+
+      padding: const EdgeInsets.all(12),
+
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey[60]),
+        borderRadius: BorderRadius.circular(8),
+      ),
+
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+
+        children: [
+          Row(
+            children: [
+              Text(
+                'دسته ${pathIndex + 1}',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+
+              const Spacer(),
+
+              IconButton(
+                icon: const Icon(FluentIcons.delete),
+                onPressed: () {
+                  _removeCategoryPath(pathIndex);
+                },
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 8),
+
+          for (int levelIndex = 0; levelIndex < path.length; levelIndex++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+
+              child: Row(
+                children: [
+                  Container(
+                    width: 28,
+                    height: 28,
+                    alignment: Alignment.center,
+
+                    decoration: BoxDecoration(
+                      color: Colors.blue,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+
+                    child: Text(
+                      '${levelIndex + 1}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  Expanded(
+                    child: TextBox(
+                      controller: path[levelIndex],
+
+                      placeholder: levelIndex == 0
+                          ? 'مثلاً گرگاب'
+                          : 'مثلاً ملاقات',
+
+                      onChanged: (_) {
+                        setState(() {});
+                      },
+                    ),
+                  ),
+
+                  const SizedBox(width: 4),
+
+                  IconButton(
+                    icon: const Icon(FluentIcons.delete),
+                    onPressed: () {
+                      _removeLevel(pathIndex, levelIndex);
+                    },
+                  ),
+                ],
+              ),
+            ),
+
+          Button(
+            onPressed: () {
+              _addLevel(pathIndex);
+            },
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(FluentIcons.add, size: 14),
+                SizedBox(width: 6),
+                Text('افزودن سطح'),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

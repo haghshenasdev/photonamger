@@ -2,6 +2,7 @@ import 'package:fgphoto/core/analysis/analysis_progress.dart';
 import 'package:fgphoto/core/analysis/analysis_stage.dart';
 import 'package:fgphoto/core/folder_service.dart';
 import 'package:fgphoto/core/media_scanner.dart';
+import 'package:fgphoto/core/metadata/metadata_save_service.dart';
 import 'package:fgphoto/core/timeline_builder.dart';
 import 'package:fgphoto/ui/dialogs/transfer_dialog.dart';
 import 'package:fgphoto/ui/models/apply_settings.dart';
@@ -250,10 +251,7 @@ class _HomePageState extends State<HomePage> {
                 const SizedBox(width: 8),
 
                 Button(
-                  onPressed:
-                      groups.any(
-                        (group) => group.edited || group.metadata != null,
-                      )
+                  onPressed: groups.any((group) => group.edited)
                       ? _saveMetadataOnly
                       : null,
                   child: const Row(
@@ -341,11 +339,11 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _saveMetadataOnly() async {
-    final editedGroups = groups.where((group) {
-      return group.edited || group.metadata != null;
-    }).toList();
+    final editableGroups = groups
+        .where((group) => group.edited || group.metadata != null)
+        .toList();
 
-    if (editedGroups.isEmpty) {
+    if (editableGroups.isEmpty) {
       await displayInfoBar(
         context,
         builder: (context, close) {
@@ -377,10 +375,10 @@ class _HomePageState extends State<HomePage> {
     }
 
     try {
-      final transferService = TransferService();
+      final service = MetadataSaveService();
 
-      await transferService.saveMetadataOnly(
-        groups: editedGroups,
+      final savedCount = await service.save(
+        groups: editableGroups,
         settings: settings,
       );
 
@@ -395,15 +393,17 @@ class _HomePageState extends State<HomePage> {
         builder: (context, close) {
           return InfoBar(
             title: const Text('اطلاعات ذخیره شد'),
-            content: Text(
-              '${editedGroups.length} گروه بدون انتقال فایل ذخیره شد.',
-            ),
+            content: Text('$savedCount گروه ذخیره شد.'),
             severity: InfoBarSeverity.success,
             onClose: close,
           );
         },
       );
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('Metadata save error: $e');
+
+      debugPrintStack(stackTrace: stackTrace);
+
       if (!mounted) {
         return;
       }
@@ -583,9 +583,27 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> analyze() async {
+    final oldGroups = groups;
+
+    final metadataByDirectory = <String, TimelineGroup>{};
+
+    for (final group in oldGroups) {
+      final directory = group.metadataDirectory;
+
+      if (directory == null) {
+        continue;
+      }
+
+      metadataByDirectory[_normalizePath(directory)] = group;
+    }
+
     final result = await engine.run(
       mediaItems,
       onProgress: (p) {
+        if (!mounted) {
+          return;
+        }
+
         setState(() {
           progress = p;
         });
@@ -596,8 +614,34 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
+    final analyzedGroups = result.timelineGroups;
+
+    for (final group in analyzedGroups) {
+      final directory = group.metadataDirectory;
+
+      if (directory == null) {
+        continue;
+      }
+
+      final oldGroup = metadataByDirectory[_normalizePath(directory)];
+
+      if (oldGroup == null) {
+        continue;
+      }
+
+      group.metadata = oldGroup.metadata;
+
+      group.metadataDirectory = oldGroup.metadataDirectory;
+
+      group.edited = oldGroup.edited;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
     setState(() {
-      groups = result.timelineGroups;
+      groups = analyzedGroups;
 
       duplicateGroups = result.duplicateGroups;
 
