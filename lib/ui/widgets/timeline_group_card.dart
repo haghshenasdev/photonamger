@@ -47,6 +47,8 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
   final TextEditingController _categorySearchController =
       TextEditingController();
 
+  final FlyoutController _categoryFlyoutController = FlyoutController();
+
   String _categorySearchQuery = '';
 
   final Set<int> expandedGroups = <int>{};
@@ -65,6 +67,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
   void dispose() {
     _searchController.dispose();
     _categorySearchController.dispose();
+    _categoryFlyoutController.dispose();
     for (final controller in _controllers.values) {
       controller.dispose();
     }
@@ -74,6 +77,115 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
     }
 
     super.dispose();
+  }
+
+  List<String> _filteredCategories() {
+    final categories = _availableCategories();
+
+    final query = _normalizeSearchText(_categorySearchQuery);
+
+    if (query.isEmpty) {
+      return categories;
+    }
+
+    return categories.where((category) {
+      return _normalizeSearchText(category).contains(query);
+    }).toList();
+  }
+
+  void _showCategoryFlyout() {
+    _categorySearchController.clear();
+
+    setState(() {
+      _categorySearchQuery = '';
+    });
+
+    _categoryFlyoutController.showFlyout(
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setFlyoutState) {
+            final categories = _filteredCategories();
+
+            return FlyoutContent(
+              child: SizedBox(
+                width: 320,
+                height: 360,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextBox(
+                      controller: _categorySearchController,
+                      autofocus: true,
+                      prefix: const Padding(
+                        padding: EdgeInsetsDirectional.only(start: 8),
+                        child: Icon(FluentIcons.search, size: 14),
+                      ),
+                      placeholder: 'جستجوی دسته‌بندی...',
+                      onChanged: (value) {
+                        setFlyoutState(() {
+                          _categorySearchQuery = value;
+                        });
+                      },
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    Expanded(
+                      child: ListView(
+                        children: [
+                          ListTile.selectable(
+                            title: const Text('همه دسته‌بندی‌ها'),
+                            selected: _selectedCategory == null,
+                            onPressed: () {
+                              setState(() {
+                                _selectedCategory = null;
+                              });
+
+                              _categorySearchController.clear();
+                              _categorySearchQuery = '';
+
+                              _categoryFlyoutController.close();
+                            },
+                          ),
+
+                          if (categories.isEmpty)
+                            const Padding(
+                              padding: EdgeInsets.all(20),
+                              child: Center(
+                                child: Text('دسته‌بندی‌ای پیدا نشد'),
+                              ),
+                            )
+                          else
+                            ...categories.map((category) {
+                              return ListTile.selectable(
+                                title: Text(
+                                  category,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                selected: _selectedCategory == category,
+                                onPressed: () {
+                                  setState(() {
+                                    _selectedCategory = category;
+                                  });
+
+                                  _categorySearchController.clear();
+                                  _categorySearchQuery = '';
+
+                                  _categoryFlyoutController.close();
+                                },
+                              );
+                            }),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   List<String> _filteredAvailableCategories() {
@@ -422,32 +534,31 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                     const SizedBox(width: 8),
 
                     Expanded(
-                      child: ComboBox<String?>(
-                        value: widget.groups.isEmpty ? null : _selectedCategory,
-                        isExpanded: true,
-                        placeholder: const Text('همه دسته‌بندی‌ها'),
-                        items: [
-                          const ComboBoxItem<String?>(
-                            value: null,
-                            child: Text('همه دسته‌بندی‌ها'),
-                          ),
-                          ..._availableCategories().map((category) {
-                            return ComboBoxItem<String?>(
-                              value: category,
-                              child: Text(
-                                category,
-                                overflow: TextOverflow.ellipsis,
+                      child: FlyoutTarget(
+                        controller: _categoryFlyoutController,
+                        child: Button(
+                          onPressed: widget.groups.isEmpty
+                              ? null
+                              : _showCategoryFlyout,
+                          child: Row(
+                            children: [
+                              Icon(
+                                _selectedCategory == null
+                                    ? FluentIcons.filter
+                                    : FluentIcons.filter_solid,
+                                size: 13,
                               ),
-                            );
-                          }),
-                        ],
-                        onChanged: widget.groups.isEmpty
-                            ? null
-                            : (value) {
-                                setState(() {
-                                  _selectedCategory = value;
-                                });
-                              },
+                              const SizedBox(width: 7),
+                              Expanded(
+                                child: Text(
+                                  _selectedCategory ?? 'همه دسته‌بندی‌ها',
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const Icon(FluentIcons.chevron_down, size: 12),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
 
