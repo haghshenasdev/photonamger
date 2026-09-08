@@ -254,8 +254,6 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
 
-                const SizedBox(width: 8),
-
                 Button(
                   onPressed: groups.any((group) => group.edited)
                       ? _saveMetadataOnly
@@ -269,6 +267,7 @@ class _HomePageState extends State<HomePage> {
                     ],
                   ),
                 ),
+                const SizedBox(width: 8),
               ],
             ),
           ],
