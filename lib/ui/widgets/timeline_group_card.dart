@@ -486,6 +486,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                               onChanged: (value) {
                                                 setState(() {
                                                   group.title = value;
+                                                  group.edited = true;
                                                 });
 
                                                 _notifyUpdate(group);
@@ -591,6 +592,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                                     group.start.hour,
                                                     group.start.minute,
                                                   );
+                                                  group.edited = true;
                                                 });
                                                 _notifyUpdate(
                                                   group,

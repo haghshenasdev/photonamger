@@ -146,144 +146,126 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
 
-            ApplyBar(
-              onApply: () async {
-                final ApplySettings? settings = await showDialog<ApplySettings>(
-                  context: context,
-                  builder: (_) => TransferDialog(
-                    groupCount: groups.length,
-                    selectedFiles: totalSelectedFiles,
-                    totalFiles: mediaItems.length,
-                  ),
-                );
+            Row(
+              children: [
+                Expanded(
+                  child: ApplyBar(
+                    onApply: () async {
+                      final ApplySettings? settings =
+                          await showDialog<ApplySettings>(
+                            context: context,
+                            builder: (_) => TransferDialog(
+                              groupCount: groups.length,
+                              selectedFiles: totalSelectedFiles,
+                              totalFiles: mediaItems.length,
+                            ),
+                          );
 
-                if (settings == null) {
-                  return;
-                }
-
-                final transferService = TransferService();
-
-                try {
-                  // قبل از شروع انتقال
-                  if (mounted) {
-                    setState(() {
-                      progress = const AnalysisProgress(
-                        stage: AnalysisStage.finished,
-                        current: 0,
-                        total: 0,
-                        message: 'در حال آماده‌سازی انتقال...',
-                      );
-                    });
-                  }
-
-                  await transferService.execute(
-                    groups: groups,
-                    duplicateGroups: duplicateGroups,
-                    settings: settings,
-
-                    //----------------------------------------------------
-                    // وقتی یک فایل با موفقیت منتقل/کپی شد
-                    //----------------------------------------------------
-                    onItemTransferred: (result) {
-                      if (!mounted) {
+                      if (settings == null) {
                         return;
                       }
 
-                      /*
-         * خود TransferService قبلاً:
-         *
-         * result.item.updatePath(result.newPath)
-         *
-         * را انجام داده است.
-         *
-         * بنابراین تمام referenceهایی که به همان MediaItem
-         * اشاره می‌کنند، اکنون مسیر جدید را دارند.
-         *
-         * این setState فقط برای refresh شدن UI است.
-         */
-                      setState(() {});
-                    },
+                      final transferService = TransferService();
 
-                    //----------------------------------------------------
-                    // Progress
-                    //----------------------------------------------------
-                    onProgress: (p) {
-                      if (!mounted) {
-                        return;
-                      }
+                      try {
+                        if (mounted) {
+                          setState(() {
+                            progress = const AnalysisProgress(
+                              stage: AnalysisStage.finished,
+                              current: 0,
+                              total: 0,
+                              message: 'در حال آماده‌سازی انتقال...',
+                            );
+                          });
+                        }
 
-                      setState(() {
-                        progress = AnalysisProgress(
-                          stage: AnalysisStage.finished,
-                          current: p.current,
-                          total: p.total,
-                          message: "در حال انتقال ${p.fileName}",
+                        await transferService.execute(
+                          groups: groups,
+                          duplicateGroups: duplicateGroups,
+                          settings: settings,
+                          onItemTransferred: (result) {
+                            if (!mounted) {
+                              return;
+                            }
+
+                            setState(() {});
+                          },
+                          onProgress: (p) {
+                            if (!mounted) {
+                              return;
+                            }
+
+                            setState(() {
+                              progress = AnalysisProgress(
+                                stage: AnalysisStage.finished,
+                                current: p.current,
+                                total: p.total,
+                                message: 'در حال انتقال ${p.fileName}',
+                              );
+                            });
+                          },
                         );
-                      });
+
+                        if (!mounted) {
+                          return;
+                        }
+
+                        setState(() {
+                          progress = null;
+                        });
+                      } catch (e, stackTrace) {
+                        debugPrint('Transfer error: $e');
+
+                        debugPrintStack(stackTrace: stackTrace);
+
+                        if (!mounted) {
+                          return;
+                        }
+
+                        setState(() {
+                          progress = null;
+                        });
+
+                        await displayInfoBar(
+                          context,
+                          builder: (context, close) {
+                            return InfoBar(
+                              title: const Text('خطا در انتقال فایل'),
+                              content: Text(e.toString()),
+                              severity: InfoBarSeverity.error,
+                              onClose: close,
+                            );
+                          },
+                        );
+                      }
                     },
-                  );
+                    mediaItems_length: mediaItems.length,
+                    progress: progress,
+                    onPause: pauseAnalyze,
+                    onResume: resumeAnalyze,
+                    onCancel: cancelAnalyze,
+                  ),
+                ),
 
-                  //------------------------------------------------------
-                  // انتقال کامل شد
-                  //------------------------------------------------------
+                const SizedBox(width: 8),
 
-                  if (!mounted) {
-                    return;
-                  }
-
-                  setState(() {
-                    progress = null;
-                  });
-
-                  //------------------------------------------------------
-                  // Timeline و Duplicateها را دوباره نمی‌سازیم.
-                  //
-                  // چون createdAt و سایر اطلاعات MediaItem تغییر نکرده
-                  // و فقط path عوض شده است.
-                  //
-                  // خود objectهای MediaItem داخل:
-                  // mediaItems
-                  // groups
-                  // duplicateGroups
-                  //
-                  // همان object هستند.
-                  //------------------------------------------------------
-
-                  setState(() {});
-                } catch (e, stackTrace) {
-                  debugPrint('Transfer error: $e');
-                  debugPrintStack(stackTrace: stackTrace);
-
-                  if (!mounted) {
-                    return;
-                  }
-
-                  setState(() {
-                    progress = null;
-                  });
-
-                  await displayInfoBar(
-                    context,
-                    builder: (context, close) {
-                      return InfoBar(
-                        title: const Text('خطا در انتقال فایل'),
-                        content: Text(e.toString()),
-                        severity: InfoBarSeverity.error,
-                        onClose: close,
-                      );
-                    },
-                  );
-                }
-              },
-
-              mediaItems_length: mediaItems.length,
-
-              progress: progress,
-              onPause: pauseAnalyze,
-
-              onResume: resumeAnalyze,
-
-              onCancel: cancelAnalyze,
+                Button(
+                  onPressed:
+                      groups.any(
+                        (group) => group.edited || group.metadata != null,
+                      )
+                      ? _saveMetadataOnly
+                      : null,
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(FluentIcons.save, size: 16),
+                      SizedBox(width: 8),
+                      Text('ذخیره اطلاعات'),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -355,6 +337,88 @@ class _HomePageState extends State<HomePage> {
 
     if (changed == true && mounted) {
       setState(() {});
+    }
+  }
+
+  Future<void> _saveMetadataOnly() async {
+    final editedGroups = groups.where((group) {
+      return group.edited || group.metadata != null;
+    }).toList();
+
+    if (editedGroups.isEmpty) {
+      await displayInfoBar(
+        context,
+        builder: (context, close) {
+          return InfoBar(
+            title: const Text('تغییری وجود ندارد'),
+            content: const Text('هیچ اطلاعات گروهی برای ذخیره وجود ندارد.'),
+            severity: InfoBarSeverity.info,
+            onClose: close,
+          );
+        },
+      );
+
+      return;
+    }
+
+    final settings = await showDialog<ApplySettings>(
+      context: context,
+      builder: (_) {
+        return TransferDialog(
+          groupCount: groups.length,
+          selectedFiles: 0,
+          totalFiles: mediaItems.length,
+        );
+      },
+    );
+
+    if (settings == null || !mounted) {
+      return;
+    }
+
+    try {
+      final transferService = TransferService();
+
+      await transferService.saveMetadataOnly(
+        groups: editedGroups,
+        settings: settings,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {});
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) {
+          return InfoBar(
+            title: const Text('اطلاعات ذخیره شد'),
+            content: Text(
+              '${editedGroups.length} گروه بدون انتقال فایل ذخیره شد.',
+            ),
+            severity: InfoBarSeverity.success,
+            onClose: close,
+          );
+        },
+      );
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) {
+          return InfoBar(
+            title: const Text('خطا در ذخیره اطلاعات'),
+            content: Text(e.toString()),
+            severity: InfoBarSeverity.error,
+            onClose: close,
+          );
+        },
+      );
     }
   }
 

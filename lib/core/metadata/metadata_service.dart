@@ -10,7 +10,10 @@ class MetadataService {
 
   File fileForDirectory(String directoryPath) {
     return File(
-      Directory(directoryPath).uri.resolve(metadataFileName).toFilePath(),
+      Directory(directoryPath)
+          .uri
+          .resolve(metadataFileName)
+          .toFilePath(),
     );
   }
 
@@ -41,14 +44,18 @@ class MetadataService {
         return null;
       }
 
-      return GroupMetadata.fromJson(Map<String, dynamic>.from(decoded));
+      return GroupMetadata.fromJson(
+        Map<String, dynamic>.from(decoded),
+      );
     } catch (_) {
-      // خراب بودن metadata نباید باعث شکست Analyze شود.
+      // خراب بودن metadata نباید باعث شکست Scan شود.
       return null;
     }
   }
 
-  /// ذخیره metadata در پوشه.
+  /// ذخیره metadata در یک پوشه.
+  ///
+  /// این متد هیچ فایل دیگری را جابه‌جا یا حذف نمی‌کند.
   Future<void> save({
     required String directoryPath,
     required GroupMetadata metadata,
@@ -59,10 +66,13 @@ class MetadataService {
 
     final file = fileForDirectory(directoryPath);
 
-    await file.writeAsString(metadata.toPrettyJson(), flush: true);
+    await file.writeAsString(
+      metadata.toPrettyJson(),
+      encoding: utf8,
+      flush: true,
+    );
   }
 
-  /// حذف metadata.
   Future<void> delete(String directoryPath) async {
     final file = fileForDirectory(directoryPath);
 
@@ -72,14 +82,9 @@ class MetadataService {
   }
 
   /// تمام پوشه‌های دارای metadata را پیدا می‌کند.
-  ///
-  /// خروجی:
-  ///
-  /// {
-  ///   "D:/Photos/سفر شمال": GroupMetadata(...),
-  ///   "D:/Photos/مراسم": GroupMetadata(...)
-  /// }
-  Future<Map<String, GroupMetadata>> scan(String rootPath) async {
+  Future<Map<String, GroupMetadata>> scan(
+    String rootPath,
+  ) async {
     final result = <String, GroupMetadata>{};
 
     final root = Directory(rootPath);
@@ -113,8 +118,7 @@ class MetadataService {
         }
       }
     } catch (_) {
-      // اگر دسترسی به یک زیرپوشه مشکل داشت،
-      // کل Scan متوقف نشود.
+      // خطای دسترسی به یک پوشه نباید کل Scan را متوقف کند.
     }
   }
 
