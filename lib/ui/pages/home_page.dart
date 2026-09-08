@@ -13,6 +13,7 @@ import 'package:fgphoto/ui/models/girid_item.dart';
 import 'package:fgphoto/ui/models/media_item.dart';
 import 'package:fgphoto/ui/models/preview_item.dart';
 import 'package:fgphoto/ui/models/timeline_group.dart';
+import 'package:fgphoto/ui/widgets/app_menu.dart';
 import 'package:fgphoto/ui/widgets/image_preview_dialog.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:fgphoto/core/apply/transfer_service.dart';
@@ -69,7 +70,10 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return NavigationView(
       content: ScaffoldPage(
-        header: const PageHeader(title: Text("آرشینو - مدیریت تصاویر")),
+        header: const PageHeader(
+          title: Text("آرشینو - مدیریت تصاویر"),
+          commandBar: const AppMenu(),
+        ),
         content: Column(
           children: [
             FolderSelector(
