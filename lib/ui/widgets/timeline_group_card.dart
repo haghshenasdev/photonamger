@@ -44,6 +44,10 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
   String _searchQuery = '';
   String? _selectedCategory;
   final TextEditingController _searchController = TextEditingController();
+  final TextEditingController _categorySearchController =
+      TextEditingController();
+
+  String _categorySearchQuery = '';
 
   final Set<int> expandedGroups = <int>{};
 
@@ -60,6 +64,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
   @override
   void dispose() {
     _searchController.dispose();
+    _categorySearchController.dispose();
     for (final controller in _controllers.values) {
       controller.dispose();
     }
@@ -69,6 +74,20 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
     }
 
     super.dispose();
+  }
+
+  List<String> _filteredAvailableCategories() {
+    final query = _normalizeSearchText(_categorySearchQuery);
+
+    final categories = _availableCategories();
+
+    if (query.isEmpty) {
+      return categories;
+    }
+
+    return categories.where((category) {
+      return _normalizeSearchText(category).contains(query);
+    }).toList();
   }
 
   TextEditingController _controllerFor(int index, String text) {
@@ -355,30 +374,39 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
             padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
             child: Column(
               children: [
-                TextBox(
-                  controller: _searchController,
-                  prefix: const Padding(
-                    padding: EdgeInsetsDirectional.only(start: 8),
-                    child: Icon(FluentIcons.search, size: 15),
-                  ),
-                  placeholder: 'جستجو در نام گروه، پوشه و توضیحات...',
-                  onChanged: (value) {
-                    setState(() {
-                      _searchQuery = value;
-                    });
-                  },
-                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextBox(
+                        controller: _searchController,
+                        prefix: const Padding(
+                          padding: EdgeInsetsDirectional.only(start: 8),
+                          child: Icon(FluentIcons.search, size: 15),
+                        ),
+                        placeholder: 'جستجو در نام گروه، پوشه و توضیحات...',
+                        onChanged: (value) {
+                          setState(() {
+                            _searchQuery = value;
+                          });
+                        },
+                      ),
+                    ),
 
-                IconButton(
-                  icon: const Icon(FluentIcons.clear, size: 14),
-                  onPressed: () {
-                    _searchController.clear();
+                    const SizedBox(width: 6),
 
-                    setState(() {
-                      _searchQuery = '';
-                      _selectedCategory = null;
-                    });
-                  },
+                    IconButton(
+                      icon: const Icon(FluentIcons.clear, size: 14),
+                      onPressed: _searchQuery.isEmpty
+                          ? null
+                          : () {
+                              _searchController.clear();
+
+                              setState(() {
+                                _searchQuery = '';
+                              });
+                            },
+                    ),
+                  ],
                 ),
 
                 const SizedBox(height: 8),
@@ -395,7 +423,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
 
                     Expanded(
                       child: ComboBox<String?>(
-                        value: _selectedCategory,
+                        value: widget.groups.isEmpty ? null : _selectedCategory,
                         isExpanded: true,
                         placeholder: const Text('همه دسته‌بندی‌ها'),
                         items: [
@@ -413,11 +441,13 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                             );
                           }),
                         ],
-                        onChanged: (value) {
-                          setState(() {
-                            _selectedCategory = value;
-                          });
-                        },
+                        onChanged: widget.groups.isEmpty
+                            ? null
+                            : (value) {
+                                setState(() {
+                                  _selectedCategory = value;
+                                });
+                              },
                       ),
                     ),
 
@@ -427,6 +457,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                       IconButton(
                         icon: const Icon(FluentIcons.clear, size: 14),
                         onPressed: () {
+                          _searchController.clear();
                           setState(() {
                             _searchQuery = '';
                             _selectedCategory = null;
