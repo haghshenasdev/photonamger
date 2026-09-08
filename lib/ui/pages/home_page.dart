@@ -1,9 +1,9 @@
+import 'dart:io';
+
 import 'package:fgphoto/core/analysis/analysis_progress.dart';
 import 'package:fgphoto/core/analysis/analysis_stage.dart';
-import 'package:fgphoto/core/apply/folder_builder.dart';
 import 'package:fgphoto/core/folder_service.dart';
 import 'package:fgphoto/core/media_scanner.dart';
-import 'package:fgphoto/core/metadata/metadata_save_service.dart';
 import 'package:fgphoto/core/metadata/metadata_service.dart';
 import 'package:fgphoto/core/timeline_builder.dart';
 import 'package:fgphoto/ui/dialogs/transfer_dialog.dart';
@@ -341,15 +341,25 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _saveMetadataOnly() async {
-    final editedGroups = groups.where((group) => group.edited).toList();
+    final editedGroups = groups
+        .where(
+          (group) =>
+              group.edited &&
+              group.metadata != null &&
+              group.metadataDirectory != null &&
+              group.metadataDirectory!.trim().isNotEmpty,
+        )
+        .toList();
 
     if (editedGroups.isEmpty) {
       await displayInfoBar(
         context,
         builder: (context, close) {
           return InfoBar(
-            title: const Text('تغییری وجود ندارد'),
-            content: const Text('هیچ گروهی برای ذخیره وجود ندارد.'),
+            title: const Text('تغییری برای ذخیره وجود ندارد'),
+            content: const Text(
+              'گروه ویرایش‌شده‌ای که مسیر پوشه آن مشخص باشد پیدا نشد.',
+            ),
             severity: InfoBarSeverity.info,
             onClose: close,
           );
@@ -359,38 +369,22 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    final outputFolder = await FolderService.pickFolder();
-
-    if (outputFolder == null || outputFolder.trim().isEmpty || !mounted) {
-      return;
-    }
-
     try {
-      final metadataService = const MetadataService();
+      const metadataService = MetadataService();
 
       int savedCount = 0;
 
       for (final group in editedGroups) {
-        if (group.metadata == null) {
+        final directoryPath = group.metadataDirectory!.trim();
+
+        final directory = Directory(directoryPath);
+
+        if (!await directory.exists()) {
           continue;
         }
 
-        final settings = ApplySettings(
-          outputFolder: outputFolder,
-          createYearFolder: true,
-          createMonthFolder: true,
-          createGroupFolder: true,
-          moveFiles: false,
-          appendDateToGroupName: true,
-        );
-
-        final folder = await FolderBuilder.build(
-          settings: settings,
-          group: group,
-        );
-
         await metadataService.save(
-          directoryPath: folder.path,
+          directoryPath: directoryPath,
           metadata: group.metadata!,
         );
 
@@ -409,8 +403,10 @@ class _HomePageState extends State<HomePage> {
         context,
         builder: (context, close) {
           return InfoBar(
-            title: const Text('اطلاعات ذخیره شد'),
-            content: Text('$savedCount گروه بدون انتقال فایل ذخیره شد.'),
+            title: const Text('ذخیره شد'),
+            content: Text(
+              'اطلاعات $savedCount گروه در پوشه اصلی خودشان ذخیره شد.',
+            ),
             severity: InfoBarSeverity.success,
             onClose: close,
           );
