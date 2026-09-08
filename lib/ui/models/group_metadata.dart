@@ -3,15 +3,14 @@ import 'dart:convert';
 class GroupMetadata {
   static const int currentVersion = 2;
 
-  final int version;
-
-  /// مسیرهای دسته‌بندی انتخاب‌شده.
+  /// هر عنصر یک مسیر کامل دسته‌بندی است.
   ///
   /// مثال:
   ///
   /// [
   ///   ['گرگاب', 'ملاقات'],
   ///   ['تست', 'تستی'],
+  ///   ['تهران', 'جلسه', 'مدیران'],
   /// ]
   final List<List<String>> categories;
 
@@ -22,6 +21,8 @@ class GroupMetadata {
     this.categories = const [],
     this.description = '',
   });
+
+  final int version;
 
   GroupMetadata copyWith({
     int? version,
@@ -38,7 +39,7 @@ class GroupMetadata {
   Map<String, dynamic> toJson() {
     return {
       'version': version,
-      'categories': categories,
+      'categories': categories.map((path) => List<String>.from(path)).toList(),
       'description': description,
     };
   }
@@ -49,16 +50,18 @@ class GroupMetadata {
     final categories = <List<String>>[];
 
     if (rawCategories is List) {
-      for (final rawPath in rawCategories) {
+      for (final value in rawCategories) {
         // فرمت جدید:
         //
-        // ["گرگاب", "ملاقات"]
-        //
-        if (rawPath is List) {
-          final path = rawPath
+        // [
+        //   ["گرگاب", "ملاقات"],
+        //   ["تست", "تستی"]
+        // ]
+        if (value is List) {
+          final path = value
               .whereType<String>()
-              .map((e) => e.trim())
-              .where((e) => e.isNotEmpty)
+              .map((item) => item.trim())
+              .where((item) => item.isNotEmpty)
               .toList();
 
           if (path.isNotEmpty) {
@@ -68,16 +71,19 @@ class GroupMetadata {
           continue;
         }
 
-        // سازگاری با نسخه قبلی:
+        // پشتیبانی از فرمت قدیمی:
         //
-        // ["سفر", "ایران", "شمال"]
+        // [
+        //   "گرگاب",
+        //   "ملاقات"
+        // ]
         //
-        // هر مقدار را یک مسیر تک‌سطحی در نظر می‌گیریم.
-        if (rawPath is String) {
-          final value = rawPath.trim();
+        // هر مورد به عنوان یک مسیر تک‌سطحی در نظر گرفته می‌شود.
+        if (value is String) {
+          final text = value.trim();
 
-          if (value.isNotEmpty) {
-            categories.add([value]);
+          if (text.isNotEmpty) {
+            categories.add([text]);
           }
         }
       }
@@ -92,7 +98,6 @@ class GroupMetadata {
 
   String toPrettyJson() {
     const encoder = JsonEncoder.withIndent('  ');
-
     return encoder.convert(toJson());
   }
 }

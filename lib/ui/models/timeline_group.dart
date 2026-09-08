@@ -10,15 +10,16 @@ class TimelineGroup {
 
   List<MediaItem> items;
 
+  /// اطلاعات ذخیره‌شده گروه.
   GroupMetadata? metadata;
 
-  /// مسیر پوشه‌ای که metadata از آن خوانده شده.
-  ///
-  /// این مسیر برای گروه‌های موجود در Source استفاده می‌شود.
+  /// پوشه‌ای که metadata از آن خوانده شده است.
   String? metadataDirectory;
 
+  /// آیا کاربر گروه را تغییر داده؟
   bool edited;
 
+  /// آیا گروه از چند گروه ادغام شده؟
   bool merged;
 
   TimelineGroup({
@@ -32,16 +33,19 @@ class TimelineGroup {
     this.merged = false,
   });
 
+  /// مسیرهای دسته‌بندی گروه.
+  ///
+  /// مثال:
+  ///
+  /// [
+  ///   ['گرگاب', 'ملاقات'],
+  ///   ['تست', 'تستی']
+  /// ]
   List<List<String>> get categories {
     return metadata?.categories ?? const [];
   }
 
   String get description {
     return metadata?.description ?? '';
-  }
-
-  void setMetadata(GroupMetadata value) {
-    metadata = value;
-    edited = true;
   }
 }
