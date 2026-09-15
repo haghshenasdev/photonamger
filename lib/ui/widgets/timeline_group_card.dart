@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:fgphoto/core/utils/persian_date.dart';
 import 'package:fgphoto/ui/dialogs/group_metadata_dialog.dart';
 import 'package:fgphoto/ui/models/group_metadata.dart';
+import 'package:fgphoto/ui/models/media_item.dart';
 import 'package:fgphoto/ui/models/timeline_group.dart';
 import 'package:fgphoto/ui/widgets/title_select_dialog.dart';
 import 'package:fgphoto/ui/widgets/title_suggestion_dialog.dart';
@@ -12,17 +15,11 @@ import 'time_field.dart';
 
 class TimelineGroupCard extends StatefulWidget {
   final List<TimelineGroup> groups;
-
   final TimelineGroup? selectedGroup;
-
   final ValueChanged<TimelineGroup> onGroupSelected;
-
   final ValueChanged<TimelineGroup> onGroupUpdated;
-
   final VoidCallback onReprocessRequested;
-
   final void Function(List<TimelineGroup> groups) onGroupsMerged;
-
   final VoidCallback onResetTimeline;
 
   const TimelineGroupCard({
@@ -43,7 +40,9 @@ class TimelineGroupCard extends StatefulWidget {
 class _TimelineGroupCardState extends State<TimelineGroupCard> {
   String _searchQuery = '';
   String? _selectedCategory;
+
   final TextEditingController _searchController = TextEditingController();
+
   final TextEditingController _categorySearchController =
       TextEditingController();
 
@@ -52,7 +51,6 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
   String _categorySearchQuery = '';
 
   final Set<int> expandedGroups = <int>{};
-
   final Set<int> selectedForMerge = <int>{};
 
   final Map<int, TextEditingController> _controllers =
@@ -68,6 +66,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
     _searchController.dispose();
     _categorySearchController.dispose();
     _categoryFlyoutController.dispose();
+
     for (final controller in _controllers.values) {
       controller.dispose();
     }
@@ -79,9 +78,70 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
     super.dispose();
   }
 
+  // ===========================================================================
+  // GROUP THUMBNAIL
+  // ===========================================================================
+
+  /// اولین تصویر موجود در گروه را پیدا می‌کند.
+  ///
+  /// MediaItem خودش مشخص می‌کند که فایل ویدئو است یا تصویر،
+  /// بنابراین نیازی به بررسی پسوند فایل نداریم.
+  MediaItem? _firstImageItem(TimelineGroup group) {
+    for (final item in group.items) {
+      if (!item.isVideo && item.path.trim().isNotEmpty) {
+        return item;
+      }
+    }
+
+    return null;
+  }
+
+  /// تصویر thumbnail گروه را می‌سازد.
+  Widget _buildGroupThumbnail(TimelineGroup group) {
+    final imageItem = _firstImageItem(group);
+
+    // اگر گروه هیچ تصویری نداشته باشد
+    if (imageItem == null) {
+      return Container(
+        width: 96,
+        height: 96,
+        decoration: BoxDecoration(
+          color: Colors.grey[30],
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.grey[60]),
+        ),
+        alignment: Alignment.center,
+        child: const Icon(FluentIcons.photo, size: 30),
+      );
+    }
+
+    final file = File(imageItem.path);
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: 96,
+        height: 96,
+        color: Colors.grey[30],
+        child: Image.file(
+          file,
+          width: 96,
+          height: 96,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return const Center(child: Icon(FluentIcons.photo, size: 30));
+          },
+        ),
+      ),
+    );
+  }
+
+  // ===========================================================================
+  // CATEGORY
+  // ===========================================================================
+
   List<String> _filteredCategories() {
     final categories = _availableCategories();
-
     final query = _normalizeSearchText(_categorySearchQuery);
 
     if (query.isEmpty) {
@@ -127,9 +187,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                         });
                       },
                     ),
-
                     const SizedBox(height: 8),
-
                     Expanded(
                       child: ListView(
                         children: [
@@ -143,11 +201,9 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
 
                               _categorySearchController.clear();
                               _categorySearchQuery = '';
-
                               _categoryFlyoutController.close();
                             },
                           ),
-
                           if (categories.isEmpty)
                             const Padding(
                               padding: EdgeInsets.all(20),
@@ -170,7 +226,6 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
 
                                   _categorySearchController.clear();
                                   _categorySearchQuery = '';
-
                                   _categoryFlyoutController.close();
                                 },
                               );
@@ -188,19 +243,9 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
     );
   }
 
-  List<String> _filteredAvailableCategories() {
-    final query = _normalizeSearchText(_categorySearchQuery);
-
-    final categories = _availableCategories();
-
-    if (query.isEmpty) {
-      return categories;
-    }
-
-    return categories.where((category) {
-      return _normalizeSearchText(category).contains(query);
-    }).toList();
-  }
+  // ===========================================================================
+  // CONTROLLERS
+  // ===========================================================================
 
   TextEditingController _controllerFor(int index, String text) {
     final existing = _controllers[index];
@@ -226,6 +271,10 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
   FlyoutController _flyoutControllerFor(int index) {
     return _flyoutControllers.putIfAbsent(index, () => FlyoutController());
   }
+
+  // ===========================================================================
+  // SEARCH
+  // ===========================================================================
 
   String _normalizeSearchText(String value) {
     return value
@@ -324,6 +373,10 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
     }).toList();
   }
 
+  // ===========================================================================
+  // GROUP ACTIONS
+  // ===========================================================================
+
   void _notifyUpdate(TimelineGroup group, {bool reprocess = false}) {
     widget.onGroupUpdated(group);
 
@@ -396,11 +449,18 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
     });
   }
 
+  // ===========================================================================
+  // BUILD
+  // ===========================================================================
+
   @override
   Widget build(BuildContext context) {
     return Card(
       child: Column(
         children: [
+          // -------------------------------------------------------------------
+          // HEADER
+          // -------------------------------------------------------------------
           Padding(
             padding: const EdgeInsets.all(12),
             child: Row(
@@ -482,6 +542,9 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
             ),
           ),
 
+          // -------------------------------------------------------------------
+          // SEARCH / FILTER
+          // -------------------------------------------------------------------
           Padding(
             padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
             child: Column(
@@ -548,13 +611,16 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                     : FluentIcons.filter_solid,
                                 size: 13,
                               ),
+
                               const SizedBox(width: 7),
+
                               Expanded(
                                 child: Text(
                                   _selectedCategory ?? 'همه دسته‌بندی‌ها',
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
+
                               const Icon(FluentIcons.chevron_down, size: 12),
                             ],
                           ),
@@ -565,10 +631,12 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                     if (_searchQuery.isNotEmpty ||
                         _selectedCategory != null) ...[
                       const SizedBox(width: 6),
+
                       IconButton(
                         icon: const Icon(FluentIcons.clear, size: 14),
                         onPressed: () {
                           _searchController.clear();
+
                           setState(() {
                             _searchQuery = '';
                             _selectedCategory = null;
@@ -581,6 +649,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
 
                 if (_searchQuery.isNotEmpty || _selectedCategory != null) ...[
                   const SizedBox(height: 5),
+
                   Align(
                     alignment: AlignmentDirectional.centerStart,
                     child: Text(
@@ -593,6 +662,9 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
             ),
           ),
 
+          // -------------------------------------------------------------------
+          // GROUP LIST
+          // -------------------------------------------------------------------
           Expanded(
             child: _filteredGroups.isEmpty
                 ? Center(
@@ -600,21 +672,27 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         const Icon(FluentIcons.search, size: 28),
+
                         const SizedBox(height: 10),
+
                         Text(
                           widget.groups.isEmpty
                               ? 'گروهی یافت نشد'
                               : 'گروهی با این فیلتر پیدا نشد',
                         ),
+
                         if (_searchQuery.isNotEmpty ||
                             _selectedCategory != null) ...[
                           const SizedBox(height: 10),
+
                           Button(
                             onPressed: () {
                               setState(() {
                                 _searchQuery = '';
                                 _selectedCategory = null;
                               });
+
+                              _searchController.clear();
                             },
                             child: const Text('حذف فیلتر'),
                           ),
@@ -647,6 +725,9 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                           ),
                           child: Column(
                             children: [
+                              // -------------------------------------------------
+                              // GROUP HEADER / CARD
+                              // -------------------------------------------------
                               FlyoutTarget(
                                 controller: flyoutController,
                                 child: GestureDetector(
@@ -665,6 +746,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
 
                                     widget.onGroupSelected(group);
                                   },
+
                                   onLongPress: () {
                                     setState(() {
                                       selectedForMerge.add(index);
@@ -672,6 +754,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
 
                                     widget.onGroupSelected(group);
                                   },
+
                                   onSecondaryTapUp: (details) {
                                     flyoutController.showFlyout(
                                       position: details.globalPosition,
@@ -693,6 +776,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                                 widget.onGroupSelected(group);
                                               },
                                             ),
+
                                             MenuFlyoutItem(
                                               leading: const Icon(
                                                 FluentIcons.edit,
@@ -708,6 +792,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                                 widget.onGroupSelected(group);
                                               },
                                             ),
+
                                             MenuFlyoutItem(
                                               leading: const Icon(
                                                 FluentIcons.info,
@@ -721,7 +806,9 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                                 widget.onGroupSelected(group);
                                               },
                                             ),
+
                                             const MenuFlyoutSeparator(),
+
                                             MenuFlyoutItem(
                                               leading: const Icon(
                                                 FluentIcons.delete,
@@ -738,12 +825,16 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                       },
                                     );
                                   },
+
                                   child: Padding(
                                     padding: const EdgeInsets.all(10),
                                     child: Row(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
+                                        // -------------------------------------------------
+                                        // MERGE CHECKBOX
+                                        // -------------------------------------------------
                                         if (selectedForMerge.isNotEmpty)
                                           Checkbox(
                                             checked: selectedForMerge.contains(
@@ -764,6 +855,16 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
 
                                         const SizedBox(width: 4),
 
+                                        // -------------------------------------------------
+                                        // FIRST IMAGE
+                                        // -------------------------------------------------
+                                        _buildGroupThumbnail(group),
+
+                                        const SizedBox(width: 12),
+
+                                        // -------------------------------------------------
+                                        // GROUP INFORMATION
+                                        // -------------------------------------------------
                                         Expanded(
                                           child: Column(
                                             crossAxisAlignment:
@@ -798,6 +899,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
 
                                               if (categoryText.isNotEmpty) ...[
                                                 const SizedBox(height: 5),
+
                                                 Row(
                                                   crossAxisAlignment:
                                                       CrossAxisAlignment.start,
@@ -811,7 +913,9 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                                         size: 12,
                                                       ),
                                                     ),
+
                                                     const SizedBox(width: 4),
+
                                                     Expanded(
                                                       child: Text(
                                                         categoryText,
@@ -831,6 +935,9 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                           ),
                                         ),
 
+                                        // -------------------------------------------------
+                                        // ACTION BUTTONS
+                                        // -------------------------------------------------
                                         Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
@@ -844,6 +951,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                                 _editGroupMetadata(group);
                                               },
                                             ),
+
                                             IconButton(
                                               icon: Icon(
                                                 isExpanded
@@ -862,6 +970,9 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                 ),
                               ),
 
+                              // -------------------------------------------------
+                              // EXPANDED EDITOR
+                              // -------------------------------------------------
                               if (isExpanded)
                                 _buildExpandedEditor(index, group),
                             ],
@@ -875,6 +986,10 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
       ),
     );
   }
+
+  // ===========================================================================
+  // EXPANDED EDITOR
+  // ===========================================================================
 
   Widget _buildExpandedEditor(int index, TimelineGroup group) {
     final titleController = _controllerFor(index, group.title);
@@ -915,7 +1030,6 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                     onChanged: (value) {
                       group.title = value;
                       group.edited = true;
-
                       widget.onGroupUpdated(group);
                     },
                   ),
@@ -946,6 +1060,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                     final controller = _controllerFor(index, result);
 
                     controller.text = result;
+
                     controller.selection = TextSelection.collapsed(
                       offset: result.length,
                     );
@@ -976,7 +1091,9 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                               : FluentIcons.edit,
                           size: 14,
                         ),
+
                         const SizedBox(width: 6),
+
                         Text(
                           group.metadata == null
                               ? 'افزودن اطلاعات گروه'
@@ -991,6 +1108,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
 
             if (categoryText.isNotEmpty) ...[
               const SizedBox(height: 8),
+
               Text(
                 categoryText,
                 maxLines: 3,
