@@ -142,7 +142,11 @@ class AnalysisEngine {
     );
   }
 
-  Future<void> _findDuplicates(AnalysisCallback? callback) async {
+  Future<void> _findDuplicates(
+    AnalysisCallback? callback, {
+    void Function(TimelineGroup group, List<DuplicateGroup> duplicates)?
+        onGroupDuplicates,
+  }) async {
     // duplicateGroups = await duplicateDetector.findDuplicates(
     //   mediaItems,
     //   controller: controller,
@@ -177,13 +181,67 @@ class AnalysisEngine {
         totalGroups: timelineGroups.length,
       );
 
+      if (controller.isCancelled) {
+        return;
+      }
+
       duplicateGroups.addAll(result);
+
+      // نتیجه هر گروه بلافاصله بعد از اتمام همان گروه منتشر می‌شود؛
+      // بنابراین UI لازم نیست تا پایان تحلیل تمام پوشه‌ها صبر کند.
+      onGroupDuplicates?.call(group, List<DuplicateGroup>.from(result));
+    }
+  }
+
+  /// فقط تصاویر تکراری یک گروه زمانی را تحلیل می‌کند.
+  /// برای تحلیل دستی از منوی کلیک راست هر گروه استفاده می‌شود.
+  Future<List<DuplicateGroup>> analyzeGroupDuplicates(
+    TimelineGroup group, {
+    void Function(AnalysisProgress? progress)? onProgress,
+  }) async {
+    if (_running) {
+      throw Exception('Analysis already running.');
+    }
+
+    _running = true;
+
+    try {
+      controller.reset();
+
+      final result = await duplicateDetector.findDuplicates(
+        group.items,
+        controller: controller,
+        onProgress: (current, total, status) {
+          _updateProgress(
+            AnalysisStage.duplicate,
+            current,
+            total,
+            status,
+            onProgress,
+          );
+        },
+        groupIndex: 1,
+        totalGroups: 1,
+      );
+
+      if (!controller.isCancelled) {
+        bestPhotoSelector.sortDuplicates(result);
+        bestPhotoSelector.selectDuplicateMasters(result);
+      }
+
+      return result;
+    } finally {
+      _running = false;
+      progress = null;
+      onProgress?.call(null);
     }
   }
 
   Future<AnalysisResult> run(
     List<MediaItem> items, {
     AnalysisCallback? onProgress,
+    void Function(TimelineGroup group, List<DuplicateGroup> duplicates)?
+        onGroupDuplicates,
   }) async {
     if (_running) {
       throw Exception('Analysis already running.');
@@ -225,7 +283,10 @@ class AnalysisEngine {
         onProgress,
       );
 
-      await _findDuplicates(onProgress);
+      await _findDuplicates(
+        onProgress,
+        onGroupDuplicates: onGroupDuplicates,
+      );
       // await _detectBlur(onProgress);
       // await _detectFaces(onProgress);
       await _scorePhotos(onProgress);

@@ -8,11 +8,13 @@ class TransferDialog extends StatefulWidget {
     required this.groupCount,
     required this.selectedFiles,
     required this.totalFiles,
+    required this.selectedBytes,
   });
 
   final int groupCount;
   final int selectedFiles;
   final int totalFiles;
+  final int selectedBytes;
 
   @override
   State<TransferDialog> createState() => _TransferDialogState();
@@ -29,6 +31,22 @@ class _TransferDialogState extends State<TransferDialog> {
 
   bool moveFiles = true;
   bool appendDateToGroupName = true;
+
+  String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes بایت';
+
+    const units = ['KB', 'MB', 'GB', 'TB'];
+    double value = bytes.toDouble();
+    int unit = -1;
+
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit++;
+    }
+
+    final digits = value >= 10 ? 1 : 2;
+    return '${value.toStringAsFixed(digits)} ${units[unit]}';
+  }
 
   Future<void> pickFolder() async {
     final folder = await FolderService.pickFolder();
@@ -64,6 +82,7 @@ class _TransferDialogState extends State<TransferDialog> {
               Expanded(
                 child: TextBox(
                   readOnly: true,
+                  placeholder: 'خالی = اعمال در همین مسیرهای فعلی',
                   controller: TextEditingController(text: outputFolder),
                 ),
               ),
@@ -74,7 +93,25 @@ class _TransferDialogState extends State<TransferDialog> {
             ],
           ),
 
-          const SizedBox(height: 25),
+          const SizedBox(height: 8),
+
+          InfoBar(
+            title: Text(
+              outputFolder.isEmpty
+                  ? 'حالت اعمال درجا فعال است'
+                  : 'مسیر خروجی انتخاب شده است',
+            ),
+            content: Text(
+              outputFolder.isEmpty
+                  ? 'فایل‌های انتخاب‌شده در محل مناسب خودشان قرار می‌گیرند و موارد حذف‌شدنی به پوشه For Delete منتقل می‌شوند.'
+                  : 'فایل‌ها طبق ساختار انتخاب‌شده در مسیر خروجی قرار می‌گیرند.',
+            ),
+            severity: outputFolder.isEmpty
+                ? InfoBarSeverity.warning
+                : InfoBarSeverity.info,
+          ),
+
+          const SizedBox(height: 18),
 
           const Text(
             "ساختار پوشه‌ها",
@@ -179,6 +216,8 @@ class _TransferDialogState extends State<TransferDialog> {
 
                   Text("فایل‌های منتخب : ${widget.selectedFiles}"),
 
+                  Text("حجم فایل‌های منتخب : ${_formatBytes(widget.selectedBytes)}"),
+
                   Text("کل فایل‌ها : ${widget.totalFiles}"),
                 ],
               ),
@@ -191,9 +230,7 @@ class _TransferDialogState extends State<TransferDialog> {
         FilledButton(
           child: const Text("شروع انتقال"),
 
-          onPressed: outputFolder.isEmpty
-              ? null
-              : () {
+          onPressed: () {
                   Navigator.pop(
                     context,
                     ApplySettings(
@@ -201,7 +238,7 @@ class _TransferDialogState extends State<TransferDialog> {
                       createYearFolder: createYearFolder,
                       createMonthFolder: createMonthFolder,
                       createGroupFolder: createGroupFolder,
-                      moveFiles: moveFiles,
+                      moveFiles: outputFolder.isEmpty ? true : moveFiles,
                       appendDateToGroupName: appendDateToGroupName,
                     ),
                   );

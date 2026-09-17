@@ -147,6 +147,8 @@ class _HomePageState extends State<HomePage> {
                         reassignGroups();
                       },
 
+                      onAnalyzeGroupRequested: _analyzeSingleGroupDuplicates,
+
                       onGroupsMerged: (selectedGroups) {
                         mergeGroups(selectedGroups);
                       },
@@ -190,6 +192,7 @@ class _HomePageState extends State<HomePage> {
                             builder: (_) => TransferDialog(
                               groupCount: groups.length,
                               selectedFiles: totalSelectedFiles,
+                              selectedBytes: totalSelectedBytes,
                               totalFiles: mediaItems.length,
                             ),
                           );
@@ -522,6 +525,35 @@ class _HomePageState extends State<HomePage> {
     return total;
   }
 
+  int get totalSelectedBytes {
+    final selectedDuplicateFiles = <String>{};
+    final duplicateFiles = <String>{};
+
+    for (final group in duplicateGroups) {
+      selectedDuplicateFiles.add(_normalizePath(group.primary.path));
+      for (final item in group.items) {
+        duplicateFiles.add(_normalizePath(item.path));
+      }
+    }
+
+    int total = 0;
+
+    for (final timeline in groups) {
+      for (final item in timeline.items) {
+        final key = _normalizePath(item.path);
+        final shouldTransfer = duplicateFiles.contains(key)
+            ? selectedDuplicateFiles.contains(key)
+            : item.isSelected;
+
+        if (shouldTransfer) {
+          total += item.fileSize;
+        }
+      }
+    }
+
+    return total;
+  }
+
   Future<void> addSourceFolder() async {
     final path = await FolderService.pickFolder();
 
@@ -668,6 +700,89 @@ class _HomePageState extends State<HomePage> {
     return normalizedChild.startsWith(normalizedParent);
   }
 
+  Future<void> _analyzeSingleGroupDuplicates(TimelineGroup group) async {
+    if (engine.isRunning) {
+      return;
+    }
+
+    setState(() {
+      progress = const AnalysisProgress(
+        stage: AnalysisStage.duplicate,
+        current: 0,
+        total: 0,
+        message: 'در حال بررسی تصاویر تکراری گروه...',
+      );
+    });
+
+    try {
+      final result = await engine.analyzeGroupDuplicates(
+        group,
+        onProgress: (p) {
+          if (!mounted) return;
+          setState(() {
+            progress = p;
+          });
+        },
+      );
+
+      if (!mounted) return;
+
+      final groupPaths = group.items
+          .map((item) => _normalizePath(item.path))
+          .toSet();
+
+      setState(() {
+        duplicateGroups.removeWhere(
+          (duplicate) => duplicate.items.any(
+            (item) => groupPaths.contains(_normalizePath(item.path)),
+          ),
+        );
+        duplicateGroups.addAll(result);
+        selectedGroup = group;
+        progress = null;
+      });
+
+      _scheduleProjectSave();
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) {
+          return InfoBar(
+            title: const Text('تحلیل گروه انجام شد'),
+            content: Text(
+              result.isEmpty
+                  ? 'تصویر تکراری در این گروه پیدا نشد.'
+                  : '${result.length} گروه تصویر تکراری پیدا شد.',
+            ),
+            severity: InfoBarSeverity.success,
+            onClose: close,
+          );
+        },
+      );
+    } catch (e, stackTrace) {
+      debugPrint('Single group duplicate analysis error: $e');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+
+      setState(() {
+        progress = null;
+      });
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) {
+          return InfoBar(
+            title: const Text('خطا در تحلیل گروه'),
+            content: Text(e.toString()),
+            severity: InfoBarSeverity.error,
+            onClose: close,
+          );
+        },
+      );
+    }
+  }
+
   Future<void> analyze() async {
     final oldGroups = groups;
 
@@ -683,8 +798,34 @@ class _HomePageState extends State<HomePage> {
       metadataByDirectory[_normalizePath(directory)] = group;
     }
 
+    if (mounted) {
+      setState(() {
+        duplicateGroups = [];
+      });
+    }
+
     final result = await engine.run(
       mediaItems,
+      onGroupDuplicates: (group, duplicates) {
+        if (!mounted) return;
+
+        final groupPaths = group.items
+            .map((item) => _normalizePath(item.path))
+            .toSet();
+
+        setState(() {
+          // نتیجه این گروه را همان لحظه جایگزین می‌کنیم؛
+          // نتیجه گروه‌های قبلی دست‌نخورده باقی می‌ماند.
+          duplicateGroups.removeWhere(
+            (duplicate) => duplicate.items.any(
+              (item) => groupPaths.contains(_normalizePath(item.path)),
+            ),
+          );
+          duplicateGroups.addAll(duplicates);
+        });
+
+        _scheduleProjectSave();
+      },
       onProgress: (p) {
         if (!mounted) {
           return;

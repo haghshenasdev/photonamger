@@ -19,6 +19,7 @@ class TimelineGroupCard extends StatefulWidget {
   final ValueChanged<TimelineGroup> onGroupSelected;
   final ValueChanged<TimelineGroup> onGroupUpdated;
   final VoidCallback onReprocessRequested;
+  final Future<void> Function(TimelineGroup group) onAnalyzeGroupRequested;
   final void Function(List<TimelineGroup> groups) onGroupsMerged;
   final VoidCallback onResetTimeline;
 
@@ -29,6 +30,7 @@ class TimelineGroupCard extends StatefulWidget {
     required this.onGroupSelected,
     required this.onGroupUpdated,
     required this.onReprocessRequested,
+    required this.onAnalyzeGroupRequested,
     required this.onGroupsMerged,
     required this.onResetTimeline,
   });
@@ -791,6 +793,18 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                                 });
 
                                                 widget.onGroupSelected(group);
+                                              },
+                                            ),
+
+                                            MenuFlyoutItem(
+                                              leading: const Icon(
+                                                FluentIcons.search,
+                                              ),
+                                              text: const Text('تحلیل تصاویر تکراری این گروه'),
+                                              onPressed: () async {
+                                                Navigator.pop(context);
+                                                widget.onGroupSelected(group);
+                                                await widget.onAnalyzeGroupRequested(group);
                                               },
                                             ),
 

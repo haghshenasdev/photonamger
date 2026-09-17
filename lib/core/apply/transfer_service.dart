@@ -58,41 +58,57 @@ class TransferService {
 
     for (final group in duplicateGroups) {
       selectedDuplicateFiles.add(_key(group.primary.path));
-
       for (final item in group.items) {
         duplicateFiles.add(_key(item.path));
       }
     }
 
     final reservedDestinations = <String>{
-      for (final operation in operations)
-        _key(operation.destinationPath),
+      for (final operation in operations) _key(operation.destinationPath),
     };
 
     int planned = 0;
 
     for (final timeline in groups) {
-      final folder = await FolderBuilder.build(
-        settings: settings,
+      final groupFolder = await _resolveGroupFolder(
         group: timeline,
+        settings: settings,
       );
 
+      final deleteFolder = settings.outputFolder.trim().isEmpty
+          ? Directory(p.join(groupFolder.parent.path, 'For Delete'))
+          : null;
+
+      if (deleteFolder != null) {
+        await deleteFolder.create(recursive: true);
+      }
+
       for (final item in timeline.items) {
-        if (!_shouldTransfer(
-          item,
-          duplicateFiles,
-          selectedDuplicateFiles,
-        )) {
+        final key = _key(item.path);
+        final isDuplicate = duplicateFiles.contains(key);
+        final isSelectedDuplicate = selectedDuplicateFiles.contains(key);
+
+        final shouldKeep = isDuplicate
+            ? isSelectedDuplicate
+            : item.isSelected;
+
+        // در حالت اعمال درجا، هر فایل انتخاب‌نشده یا duplicate غیرمنتخب
+        // به For Delete منتقل می‌شود.
+        final shouldDelete = settings.outputFolder.trim().isEmpty &&
+            !shouldKeep &&
+            settings.moveFiles;
+
+        if (!shouldKeep && !shouldDelete) {
           continue;
         }
 
-        final sourcePath = item.path;
+        final destinationFolder = shouldDelete
+            ? deleteFolder!
+            : groupFolder;
 
-        // اگر همین فایل قبلاً برای همین پروژه ثبت شده، همان operation
-        // را نگه می‌داریم تا Resume دقیق باشد.
         final existing = _findOperation(
           operations,
-          sourcePath,
+          item.path,
           settings.moveFiles,
         );
 
@@ -101,7 +117,7 @@ class TransferService {
           continue;
         }
 
-        final destinationPath = p.join(folder.path, item.fileName);
+        final destinationPath = p.join(destinationFolder.path, item.fileName);
         final finalDestination = await _createUniqueFilePath(
           destinationPath,
           reservedPaths: reservedDestinations,
@@ -111,21 +127,126 @@ class TransferService {
 
         final operation = ProjectOperation(
           id: '${DateTime.now().microsecondsSinceEpoch}_${planned + 1}',
-          sourcePath: sourcePath,
+          sourcePath: item.path,
           destinationPath: finalDestination,
           type: settings.moveFiles
               ? ProjectOperationType.move
               : ProjectOperationType.copy,
         );
 
+        // اگر فایل همین حالا در مقصد صحیح قرار دارد، هیچ انتقالی انجام نده.
+        // این حالت مخصوصاً در «اعمال درجا» مهم است؛ delete کردن source وقتی
+        // source و destination یکی هستند می‌تواند باعث از بین رفتن فایل شود.
+        if (_key(item.path) == _key(finalDestination)) {
+          operation.status = ProjectOperationStatus.completed;
+          operation.completedAt = DateTime.now();
+        }
+
         operations.add(operation);
         onOperationChanged?.call(operation);
-
         planned++;
       }
     }
 
     return planned;
+  }
+
+  /// مقصد هر گروه را تعیین می‌کند.
+  ///
+  /// وقتی مسیر خروجی خالی است، عملیات درجا است:
+  /// - اگر گروه از قبل پوشه metadata خودش را دارد و فایل‌های گروه در همان
+  ///   پوشه هستند، همان پوشه حفظ می‌شود.
+  /// - اگر فایل‌ها همگی در یک پوشه باشند، همان پوشه مقصد است.
+  /// - در حالت پراکنده، یک پوشه مناسب بر اساس ساختار انتخاب‌شده ساخته می‌شود.
+  Future<Directory> _resolveGroupFolder({
+    required TimelineGroup group,
+    required ApplySettings settings,
+  }) async {
+    if (settings.outputFolder.trim().isNotEmpty) {
+      return FolderBuilder.build(settings: settings, group: group);
+    }
+
+    final existingMetadataDirectory = group.metadataDirectory?.trim();
+
+    if (existingMetadataDirectory != null &&
+        existingMetadataDirectory.isNotEmpty) {
+      final metadataDirectory = Directory(existingMetadataDirectory);
+
+      if (await metadataDirectory.exists()) {
+        final allInsideMetadata = group.items.isNotEmpty &&
+            group.items.every(
+              (item) => _isSameOrDirectChild(item.path, metadataDirectory.path),
+            );
+
+        if (allInsideMetadata) {
+          return metadataDirectory;
+        }
+      }
+    }
+
+    final parentDirectories = <String>{};
+    for (final item in group.items) {
+      parentDirectories.add(_key(File(item.path).parent.path));
+    }
+
+    if (parentDirectories.length == 1) {
+      return Directory(parentDirectories.first);
+    }
+
+    // فایل‌ها در چند پوشه هستند؛ نزدیک‌ترین والد مشترک را پیدا می‌کنیم.
+    final commonParent = _commonParentPath(
+      group.items.map((item) => File(item.path).parent.path).toList(),
+    );
+
+    final base = commonParent ??
+        (group.items.isNotEmpty
+            ? File(group.items.first.path).parent.path
+            : Directory.current.path);
+
+    final localSettings = settings.copyWith(outputFolder: base);
+    return FolderBuilder.build(settings: localSettings, group: group);
+  }
+
+  bool _isSameOrDirectChild(String filePath, String directoryPath) {
+    final fileParent = _key(File(filePath).parent.path);
+    final directory = _key(directoryPath);
+    return fileParent == directory;
+  }
+
+  String? _commonParentPath(List<String> paths) {
+    if (paths.isEmpty) return null;
+
+    final splitPaths = paths.map((path) {
+      final normalized = p.normalize(p.absolute(path));
+      return normalized.split(p.separator);
+    }).toList();
+
+    final first = splitPaths.first;
+    int commonLength = first.length;
+
+    for (final parts in splitPaths.skip(1)) {
+      commonLength = commonLength < parts.length
+          ? commonLength
+          : parts.length;
+
+      for (int i = 0; i < commonLength; i++) {
+        if (_key(first[i]) != _key(parts[i])) {
+          commonLength = i;
+          break;
+        }
+      }
+    }
+
+    if (commonLength <= 0) return null;
+
+    var result = first.take(commonLength).join(p.separator);
+
+    // Windows drive root مثل C:\
+    if (result.length == 2 && result.endsWith(':')) {
+      result += p.separator;
+    }
+
+    return result;
   }
 
   Future<List<TransferResult>> execute({
@@ -271,9 +392,9 @@ class TransferService {
     // metadata همچنان مطابق رفتار قبلی ذخیره می‌شود.
     for (final timeline in groups) {
       try {
-        final folder = await FolderBuilder.build(
-          settings: settings,
+        final folder = await _resolveGroupFolder(
           group: timeline,
+          settings: settings,
         );
         await _saveGroupMetadata(timeline, folder.path);
       } catch (_) {
@@ -291,9 +412,9 @@ class TransferService {
     for (final group in groups) {
       if (!group.edited) continue;
 
-      final folder = await FolderBuilder.build(
-        settings: settings,
+      final folder = await _resolveGroupFolder(
         group: group,
+        settings: settings,
       );
 
       await _saveGroupMetadata(group, folder.path);
