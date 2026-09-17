@@ -1,4 +1,24 @@
 class ApplySettings {
+  Map<String, dynamic> toJson() => {
+        'outputFolder': outputFolder,
+        'createYearFolder': createYearFolder,
+        'createMonthFolder': createMonthFolder,
+        'createGroupFolder': createGroupFolder,
+        'moveFiles': moveFiles,
+        'appendDateToGroupName': appendDateToGroupName,
+      };
+
+  factory ApplySettings.fromJson(Map<String, dynamic> json) {
+    return ApplySettings(
+      outputFolder: json['outputFolder']?.toString() ?? '',
+      createYearFolder: json['createYearFolder'] != false,
+      createMonthFolder: json['createMonthFolder'] != false,
+      createGroupFolder: json['createGroupFolder'] != false,
+      moveFiles: json['moveFiles'] != false,
+      appendDateToGroupName: json['appendDateToGroupName'] != false,
+    );
+  }
+
   /// مسیر خروجی
   final String outputFolder;
 

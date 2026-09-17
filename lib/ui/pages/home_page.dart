@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:fgphoto/core/analysis/analysis_progress.dart';
@@ -17,6 +18,10 @@ import 'package:fgphoto/ui/widgets/app_menu.dart';
 import 'package:fgphoto/ui/widgets/image_preview_dialog.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:fgphoto/core/apply/transfer_service.dart';
+import 'package:fgphoto/core/project/photon_project.dart';
+import 'package:fgphoto/core/project/project_file_service.dart';
+import 'package:fgphoto/core/project/project_operation.dart';
+import 'package:fgphoto/core/project/project_repository.dart';
 
 import '../widgets/folder_selector.dart';
 import '../widgets/timeline_group_card.dart';
@@ -54,6 +59,12 @@ class _HomePageState extends State<HomePage> {
 
   late final AnalysisEngine engine;
 
+  PhotonProject? _project;
+  String? _projectPath;
+
+  Timer? _saveTimer;
+  Future<void> _saveQueue = Future<void>.value();
+
   @override
   void initState() {
     super.initState();
@@ -64,15 +75,29 @@ class _HomePageState extends State<HomePage> {
       qualityScorer: QualityScorer(),
       bestPhotoSelector: BestPhotoSelector(),
     );
+
+    Future.microtask(_restoreLastProject);
+  }
+
+  @override
+  void dispose() {
+    _saveTimer?.cancel();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return NavigationView(
       content: ScaffoldPage(
-        header: const PageHeader(
-          title: Text("آرشینو - مدیریت تصاویر"),
-          commandBar: const AppMenu(),
+        header: PageHeader(
+          title: const Text("آرشینو - مدیریت تصاویر"),
+          commandBar: AppMenu(
+            onNewProject: _newProject,
+            onOpenProject: _openProject,
+            onSaveProject: _saveProject,
+            onSaveProjectAs: _saveProjectAs,
+            onResumeOperations: _resumePendingOperations,
+          ),
         ),
         content: Column(
           children: [
@@ -113,8 +138,8 @@ class _HomePageState extends State<HomePage> {
                       },
 
                       onGroupUpdated: (group) {
-                        // اگر مستقیم تغییر دادی، timeline رو rebuild کن
                         setState(() {});
+                        _scheduleProjectSave();
                       },
 
                       onReprocessRequested: () {
@@ -136,6 +161,7 @@ class _HomePageState extends State<HomePage> {
                       items: buildGridItems(),
                       onChanged: () {
                         setState(() {});
+                        _scheduleProjectSave();
                       },
                     ),
                   ),
@@ -172,6 +198,13 @@ class _HomePageState extends State<HomePage> {
                         return;
                       }
 
+                      if (_projectPath == null) {
+                        await _saveProjectAs();
+                        if (_projectPath == null) {
+                          return;
+                        }
+                      }
+
                       final transferService = TransferService();
 
                       try {
@@ -186,21 +219,41 @@ class _HomePageState extends State<HomePage> {
                           });
                         }
 
+                        final project = _ensureProject();
+                        project.applySettings = settings;
+
+                        // ابتدا مقصد همه فایل‌ها در پروژه ثبت می‌شود.
+                        // بنابراین حتی اگر قبل از اولین انتقال برق برود،
+                        // مقصد عملیات بعد از اجرای بعدی مشخص است.
+                        await transferService.prepareOperations(
+                          groups: groups,
+                          duplicateGroups: duplicateGroups,
+                          settings: settings,
+                          operations: project.operations,
+                        );
+
+                        await _enqueueProjectSave();
+
                         await transferService.execute(
                           groups: groups,
                           duplicateGroups: duplicateGroups,
                           settings: settings,
+                          operations: project.operations,
                           onItemTransferred: (result) {
-                            if (!mounted) {
-                              return;
-                            }
-
+                            if (!mounted) return;
                             setState(() {});
+                            _scheduleProjectSave();
+                          },
+                          onOperationChanged: (operation) {
+                            if (operation.status ==
+                                    ProjectOperationStatus.completed ||
+                                operation.status ==
+                                    ProjectOperationStatus.failed) {
+                              _scheduleProjectSave();
+                            }
                           },
                           onProgress: (p) {
-                            if (!mounted) {
-                              return;
-                            }
+                            if (!mounted) return;
 
                             setState(() {
                               progress = AnalysisProgress(
@@ -213,21 +266,20 @@ class _HomePageState extends State<HomePage> {
                           },
                         );
 
-                        if (!mounted) {
-                          return;
-                        }
+                        await _enqueueProjectSave();
+
+                        if (!mounted) return;
 
                         setState(() {
                           progress = null;
                         });
                       } catch (e, stackTrace) {
                         debugPrint('Transfer error: $e');
-
                         debugPrintStack(stackTrace: stackTrace);
 
-                        if (!mounted) {
-                          return;
-                        }
+                        await _enqueueProjectSave();
+
+                        if (!mounted) return;
 
                         setState(() {
                           progress = null;
@@ -401,6 +453,7 @@ class _HomePageState extends State<HomePage> {
       }
 
       setState(() {});
+      _scheduleProjectSave();
 
       await displayInfoBar(
         context,
@@ -518,12 +571,18 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       sourcePaths.add(path);
     });
+
+    _ensureProject().sourcePaths = List<String>.from(sourcePaths);
+    _scheduleProjectSave();
   }
 
   Future<void> removeSourceFolder(String path) async {
     setState(() {
       sourcePaths.remove(path);
     });
+
+    _ensureProject().sourcePaths = List<String>.from(sourcePaths);
+    _scheduleProjectSave();
   }
 
   Future<void> scanSourceFolders() async {
@@ -568,6 +627,17 @@ class _HomePageState extends State<HomePage> {
 
       selectedGroup = generatedGroups.isNotEmpty ? generatedGroups.first : null;
     });
+
+    final project = _ensureProject();
+    project.sourcePaths = List<String>.from(sourcePaths);
+    project.mediaItems = mediaItems;
+    project.groups = groups;
+    project.duplicateGroups = [];
+    project.operations.clear();
+    project.applySettings = null;
+    project.analysisCompleted = false;
+
+    await _enqueueProjectSave();
 
     //------------------------------------------------------
     // Analysis
@@ -623,6 +693,9 @@ class _HomePageState extends State<HomePage> {
         setState(() {
           progress = p;
         });
+
+        // نتایج تحلیل تا همین لحظه هم در پروژه قابل بازیابی هستند.
+        _scheduleProjectSave();
       },
     );
 
@@ -663,6 +736,15 @@ class _HomePageState extends State<HomePage> {
 
       selectedGroup = groups.isEmpty ? null : groups.first;
     });
+
+    final project = _ensureProject();
+    project.sourcePaths = List<String>.from(sourcePaths);
+    project.mediaItems = mediaItems;
+    project.groups = groups;
+    project.duplicateGroups = duplicateGroups;
+    project.analysisCompleted = true;
+
+    await _enqueueProjectSave();
   }
 
   List<GridItem> buildGridItems() {
@@ -814,6 +896,11 @@ class _HomePageState extends State<HomePage> {
       groups = remainingGroups;
       selectedGroup = mergedGroup;
     });
+
+    _ensureProject()
+      ..groups = groups
+      ..analysisCompleted = true;
+    _scheduleProjectSave();
   }
 
   void resetTimeline() {
@@ -826,6 +913,459 @@ class _HomePageState extends State<HomePage> {
 
       selectedGroup = generatedGroups.isNotEmpty ? generatedGroups.first : null;
     });
+
+    _ensureProject()
+      ..groups = groups
+      ..analysisCompleted = true;
+    _scheduleProjectSave();
+  }
+
+  PhotonProject _ensureProject() {
+    return _project ??= PhotonProject.empty('پروژه جدید');
+  }
+
+  void _syncProjectState() {
+    final project = _ensureProject();
+
+    project.sourcePaths = List<String>.from(sourcePaths);
+    project.mediaItems = mediaItems;
+    project.groups = groups;
+    project.duplicateGroups = duplicateGroups;
+  }
+
+  Future<void> _saveCurrentProjectNow() async {
+    if (_projectPath == null) return;
+
+    _syncProjectState();
+
+    await ProjectRepository.save(
+      path: _projectPath!,
+      project: _ensureProject(),
+    );
+
+    await ProjectRepository.rememberProjectPath(_projectPath!);
+  }
+
+  Future<void> _enqueueProjectSave() {
+    if (_projectPath == null) return Future<void>.value();
+
+    final next = _saveQueue.then(
+      (_) => _saveCurrentProjectNow(),
+      onError: (_) => _saveCurrentProjectNow(),
+    );
+
+    _saveQueue = next;
+    return next;
+  }
+
+  void _scheduleProjectSave() {
+    if (_projectPath == null) return;
+
+    _saveTimer?.cancel();
+
+    _saveTimer = Timer(const Duration(milliseconds: 700), () {
+      _enqueueProjectSave();
+    });
+  }
+
+  Future<void> _saveProject() async {
+    if (_projectPath == null) {
+      await _saveProjectAs();
+      return;
+    }
+
+    try {
+      await _enqueueProjectSave();
+
+      if (!mounted) return;
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) {
+          return InfoBar(
+            title: const Text('پروژه ذخیره شد'),
+            content: Text(_projectPath!),
+            severity: InfoBarSeverity.success,
+            onClose: close,
+          );
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) {
+          return InfoBar(
+            title: const Text('خطا در ذخیره پروژه'),
+            content: Text(e.toString()),
+            severity: InfoBarSeverity.error,
+            onClose: close,
+          );
+        },
+      );
+    }
+  }
+
+  Future<void> _saveProjectAs() async {
+    try {
+      _syncProjectState();
+
+      final path = await ProjectFileService.saveProjectAs(
+        _ensureProject(),
+      );
+
+      if (path == null) return;
+
+      setState(() {
+        _projectPath = path;
+      });
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) {
+          return InfoBar(
+            title: const Text('پروژه ذخیره شد'),
+            content: Text(path),
+            severity: InfoBarSeverity.success,
+            onClose: close,
+          );
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) {
+          return InfoBar(
+            title: const Text('خطا در ذخیره پروژه'),
+            content: Text(e.toString()),
+            severity: InfoBarSeverity.error,
+            onClose: close,
+          );
+        },
+      );
+    }
+  }
+
+  Future<void> _newProject() async {
+    setState(() {
+      sourcePaths = [];
+      mediaItems = [];
+      groups = [];
+      duplicateGroups = [];
+      selectedGroup = null;
+      progress = null;
+
+      _project = PhotonProject.empty('پروژه جدید');
+      _projectPath = null;
+    });
+  }
+
+  Future<void> _openProject() async {
+    final path = await ProjectFileService.openProjectPath();
+    if (path == null) return;
+
+    await _loadProjectFromPath(path, showRecoveryPrompt: true);
+  }
+
+  Future<void> _restoreLastProject() async {
+    try {
+      final path = await ProjectRepository.readLastProjectPath();
+
+      if (path == null || path.trim().isEmpty) return;
+      if (!await File(path).exists()) return;
+
+      await _loadProjectFromPath(
+        path,
+        showRecoveryPrompt: true,
+      );
+    } catch (e) {
+      debugPrint('Last project restore error: $e');
+    }
+  }
+
+  Future<void> _loadProjectFromPath(
+    String path, {
+    required bool showRecoveryPrompt,
+  }) async {
+    try {
+      final project = await ProjectRepository.load(path);
+
+      if (!mounted) return;
+
+      setState(() {
+        _project = project;
+        _projectPath = path;
+
+        sourcePaths = List<String>.from(project.sourcePaths);
+        mediaItems = project.mediaItems;
+        groups = project.groups;
+        duplicateGroups = project.duplicateGroups;
+        selectedGroup = groups.isEmpty ? null : groups.first;
+        progress = null;
+      });
+
+      await ProjectRepository.rememberProjectPath(path);
+
+      if (showRecoveryPrompt) {
+        await _offerPendingOperations();
+      }
+    } catch (e, stackTrace) {
+      debugPrint('Project load error: $e');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) {
+          return InfoBar(
+            title: const Text('خطا در باز کردن پروژه'),
+            content: Text(e.toString()),
+            severity: InfoBarSeverity.error,
+            onClose: close,
+          );
+        },
+      );
+    }
+  }
+
+  Future<void> _offerPendingOperations() async {
+    final project = _project;
+    if (project == null) return;
+
+    final pending = project.operations
+        .where((operation) => !operation.isFinished)
+        .toList();
+
+    if (pending.isEmpty) return;
+
+    if (project.applySettings == null) {
+      await displayInfoBar(
+        context,
+        builder: (context, close) {
+          return InfoBar(
+            title: const Text('عملیات ناتمام پیدا شد'),
+            content: const Text(
+              'فایل پروژه عملیات ناتمام دارد، اما تنظیمات انتقال آن در پروژه موجود نیست.',
+            ),
+            severity: InfoBarSeverity.warning,
+            onClose: close,
+          );
+        },
+      );
+      return;
+    }
+
+    if (!mounted) return;
+
+    final shouldResume = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return ContentDialog(
+          title: const Text('عملیات ناتمام پیدا شد'),
+          content: Text(
+            '${pending.length} عملیات انتقال/کپی از این پروژه کامل نشده است.\n\n'
+            'آیا می‌خواهید از همان جایی که عملیات متوقف شده ادامه دهید؟',
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('ادامه عملیات'),
+            ),
+            Button(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('بعداً'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldResume == true) {
+      await _resumePendingOperations();
+    }
+  }
+
+  Future<void> _resumePendingOperations() async {
+    final project = _project;
+
+    if (project == null || _projectPath == null) {
+      if (!mounted) return;
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) {
+          return InfoBar(
+            title: const Text('پروژه‌ای باز نیست'),
+            content: const Text('ابتدا یک فایل پروژه را باز یا ذخیره کنید.'),
+            severity: InfoBarSeverity.warning,
+            onClose: close,
+          );
+        },
+      );
+      return;
+    }
+
+    final baseSettings = project.applySettings;
+
+    if (baseSettings == null) {
+      if (!mounted) return;
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) {
+          return InfoBar(
+            title: const Text('تنظیمات انتقال موجود نیست'),
+            content: const Text(
+              'برای ادامه عملیات قبلی، تنظیمات انتقال در پروژه ذخیره نشده است.',
+            ),
+            severity: InfoBarSeverity.warning,
+            onClose: close,
+          );
+        },
+      );
+      return;
+    }
+
+    final pending = project.operations
+        .where((operation) => !operation.isFinished)
+        .toList();
+
+    if (pending.isEmpty) {
+      if (!mounted) return;
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) {
+          return InfoBar(
+            title: const Text('عملیات ناتمامی وجود ندارد'),
+            content: const Text('تمام عملیات انتقال این پروژه کامل شده‌اند.'),
+            severity: InfoBarSeverity.info,
+            onClose: close,
+          );
+        },
+      );
+      return;
+    }
+
+    final transferService = TransferService();
+
+    setState(() {
+      progress = const AnalysisProgress(
+        stage: AnalysisStage.finished,
+        current: 0,
+        total: 0,
+        message: 'در حال بازیابی عملیات...',
+      );
+    });
+
+    try {
+      // عملیات Move و Copy ممکن است هر دو در یک پروژه وجود داشته باشند.
+      for (final move in [true, false]) {
+        final hasPendingType = pending.any(
+          (operation) =>
+              operation.type ==
+                  (move
+                      ? ProjectOperationType.move
+                      : ProjectOperationType.copy) &&
+              !operation.isFinished,
+        );
+
+        if (!hasPendingType) continue;
+
+        final settings = baseSettings.copyWith(moveFiles: move);
+
+        await transferService.execute(
+          groups: groups,
+          duplicateGroups: duplicateGroups,
+          settings: settings,
+          operations: project.operations,
+          saveMetadata: false,
+          onItemTransferred: (result) {
+            if (!mounted) return;
+            setState(() {});
+            _scheduleProjectSave();
+          },
+          onOperationChanged: (operation) {
+            if (operation.status ==
+                    ProjectOperationStatus.completed ||
+                operation.status == ProjectOperationStatus.failed) {
+              _scheduleProjectSave();
+            }
+          },
+          onProgress: (p) {
+            if (!mounted) return;
+
+            setState(() {
+              progress = AnalysisProgress(
+                stage: AnalysisStage.finished,
+                current: p.current,
+                total: p.total,
+                message: 'در حال ادامه ${p.fileName}',
+              );
+            });
+          },
+        );
+      }
+
+      await _enqueueProjectSave();
+
+      if (!mounted) return;
+
+      setState(() {
+        progress = null;
+      });
+
+      final remaining = project.operations
+          .where((operation) => !operation.isFinished)
+          .length;
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) {
+          return InfoBar(
+            title: remaining == 0
+                ? const Text('عملیات کامل شد')
+                : const Text('عملیات متوقف شد'),
+            content: Text(
+              remaining == 0
+                  ? 'همه عملیات ناتمام با موفقیت بررسی و تکمیل شدند.'
+                  : '$remaining عملیات هنوز کامل نشده‌اند و برای Resume بعدی در پروژه باقی می‌مانند.',
+            ),
+            severity: remaining == 0
+                ? InfoBarSeverity.success
+                : InfoBarSeverity.warning,
+            onClose: close,
+          );
+        },
+      );
+    } catch (e, stackTrace) {
+      debugPrint('Resume error: $e');
+      debugPrintStack(stackTrace: stackTrace);
+
+      await _enqueueProjectSave();
+
+      if (!mounted) return;
+
+      setState(() {
+        progress = null;
+      });
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) {
+          return InfoBar(
+            title: const Text('خطا در ادامه عملیات'),
+            content: Text(e.toString()),
+            severity: InfoBarSeverity.error,
+            onClose: close,
+          );
+        },
+      );
+    }
   }
 
   void pauseAnalyze() {
