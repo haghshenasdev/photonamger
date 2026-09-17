@@ -44,7 +44,7 @@ class ApplyBar extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       child: Row(
         children: [
-          if (progress != null)
+          if (isAnalyzing)
             Row(
               children: [
                 Padding(

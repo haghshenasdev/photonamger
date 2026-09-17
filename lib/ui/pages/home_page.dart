@@ -794,88 +794,104 @@ class _HomePageState extends State<HomePage> {
       });
     }
 
-    final result = await engine.run(
-      mediaItems,
-      onGroupDuplicates: (group, duplicates) {
-        if (!mounted) return;
+    try {
+      final result = await engine.run(
+        mediaItems,
+        onGroupDuplicates: (group, duplicates) {
+          if (!mounted) return;
 
-        final groupPaths = group.items
-            .map((item) => _normalizePath(item.path))
-            .toSet();
+          final groupPaths = group.items
+              .map((item) => _normalizePath(item.path))
+              .toSet();
 
-        setState(() {
-          // نتیجه این گروه را همان لحظه جایگزین می‌کنیم؛
-          // نتیجه گروه‌های قبلی دست‌نخورده باقی می‌ماند.
-          duplicateGroups.removeWhere(
-            (duplicate) => duplicate.items.any(
-              (item) => groupPaths.contains(_normalizePath(item.path)),
-            ),
-          );
-          duplicateGroups.addAll(duplicates);
-        });
+          setState(() {
+            duplicateGroups.removeWhere(
+              (duplicate) => duplicate.items.any(
+                (item) => groupPaths.contains(_normalizePath(item.path)),
+              ),
+            );
 
-        _scheduleProjectSave();
-      },
-      onProgress: (p) {
-        if (!mounted) {
-          return;
+            duplicateGroups.addAll(duplicates);
+          });
+
+          _scheduleProjectSave();
+        },
+        onProgress: (p) {
+          if (!mounted) return;
+
+          setState(() {
+            progress = p;
+          });
+
+          _scheduleProjectSave();
+        },
+      );
+
+      // اگر کاربر آنالیز را لغو کرده باشد،
+      // پروگرس‌بار باید فوراً از صفحه حذف شود.
+      if (result.cancelled) {
+        if (mounted) {
+          setState(() {
+            progress = null;
+          });
         }
 
+        return;
+      }
+
+      final analyzedGroups = result.timelineGroups;
+
+      for (final group in analyzedGroups) {
+        final directory = group.metadataDirectory;
+
+        if (directory == null) {
+          continue;
+        }
+
+        final oldGroup = metadataByDirectory[_normalizePath(directory)];
+
+        if (oldGroup == null) {
+          continue;
+        }
+
+        group.metadata = oldGroup.metadata;
+        group.metadataDirectory = oldGroup.metadataDirectory;
+        group.edited = oldGroup.edited;
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        groups = analyzedGroups;
+
+        duplicateGroups = result.duplicateGroups;
+
+        selectedGroup = groups.isEmpty ? null : groups.first;
+
+        // پایان کامل آنالیز
+        progress = null;
+      });
+
+      final project = _ensureProject();
+
+      project.sourcePaths = List<String>.from(sourcePaths);
+      project.mediaItems = mediaItems;
+      project.groups = groups;
+      project.duplicateGroups = duplicateGroups;
+      project.analysisCompleted = true;
+
+      await _enqueueProjectSave();
+    } finally {
+      // چه آنالیز کامل شود، چه لغو شود، چه خطایی رخ دهد،
+      // پروگرس‌بار در نهایت باید حذف شود.
+      if (mounted) {
         setState(() {
-          progress = p;
+          progress = null;
         });
-
-        // نتایج تحلیل تا همین لحظه هم در پروژه قابل بازیابی هستند.
-        _scheduleProjectSave();
-      },
-    );
-
-    if (result.cancelled) {
-      return;
-    }
-
-    final analyzedGroups = result.timelineGroups;
-
-    for (final group in analyzedGroups) {
-      final directory = group.metadataDirectory;
-
-      if (directory == null) {
-        continue;
       }
-
-      final oldGroup = metadataByDirectory[_normalizePath(directory)];
-
-      if (oldGroup == null) {
-        continue;
-      }
-
-      group.metadata = oldGroup.metadata;
-
-      group.metadataDirectory = oldGroup.metadataDirectory;
-
-      group.edited = oldGroup.edited;
     }
-
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      groups = analyzedGroups;
-
-      duplicateGroups = result.duplicateGroups;
-
-      selectedGroup = groups.isEmpty ? null : groups.first;
-    });
-
-    final project = _ensureProject();
-    project.sourcePaths = List<String>.from(sourcePaths);
-    project.mediaItems = mediaItems;
-    project.groups = groups;
-    project.duplicateGroups = duplicateGroups;
-    project.analysisCompleted = true;
-
-    await _enqueueProjectSave();
   }
 
   List<GridItem> buildGridItems() {
@@ -1507,5 +1523,11 @@ class _HomePageState extends State<HomePage> {
 
   void cancelAnalyze() {
     analysisController.cancel();
+
+    if (mounted) {
+      setState(() {
+        progress = null;
+      });
+    }
   }
 }
