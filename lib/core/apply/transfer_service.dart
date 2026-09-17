@@ -265,8 +265,14 @@ class TransferService {
     final duplicateFiles = <String>{};
 
     for (final group in duplicateGroups) {
-      selectedDuplicateFiles.add(_key(group.primary.path));
+      // تمام عکس‌هایی که کاربر انتخاب کرده باید حفظ شوند.
+      for (final index in group.selectedIndices) {
+        if (index >= 0 && index < group.items.length) {
+          selectedDuplicateFiles.add(_key(group.items[index].path));
+        }
+      }
 
+      // تمام فایل‌های گروه را به عنوان Duplicate ثبت می‌کنیم.
       for (final item in group.items) {
         duplicateFiles.add(_key(item.path));
       }

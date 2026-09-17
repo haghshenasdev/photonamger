@@ -65,7 +65,7 @@ class _DuplicateViewerDialogState extends State<DuplicateViewerDialog> {
               ),
             ),
 
-            const SizedBox(width: 10),  
+            const SizedBox(width: 10),
 
             SizedBox(
               width: 320,

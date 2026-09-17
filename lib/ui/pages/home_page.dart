@@ -524,7 +524,12 @@ class _HomePageState extends State<HomePage> {
     final duplicateFiles = <String>{};
 
     for (final group in duplicateGroups) {
-      selectedDuplicateFiles.add(_normalizePath(group.primary.path));
+      for (final index in group.selectedIndices) {
+        if (index >= 0 && index < group.items.length) {
+          selectedDuplicateFiles.add(_normalizePath(group.items[index].path));
+        }
+      }
+
       for (final item in group.items) {
         duplicateFiles.add(_normalizePath(item.path));
       }

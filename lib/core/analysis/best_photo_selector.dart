@@ -4,6 +4,10 @@ import '../../ui/models/media_item.dart';
 class BestPhotoSelector {
   void selectDuplicateMasters(List<DuplicateGroup> groups) {
     for (final group in groups) {
+      if (group.items.isEmpty) {
+        continue;
+      }
+
       double best = -999999;
 
       int index = 0;
@@ -13,26 +17,41 @@ class BestPhotoSelector {
 
         if (s > best) {
           best = s;
-
           index = i;
         }
       }
 
       group.selectedIndex = index;
+
+      // بعد از تعیین بهترین عکس،
+      // فقط همان عکس به عنوان انتخاب اولیه باقی می‌ماند.
+      group.selectedIndices
+        ..clear()
+        ..add(index);
     }
   }
 
   void sortDuplicates(List<DuplicateGroup> groups) {
     for (final group in groups) {
+      if (group.items.isEmpty) {
+        continue;
+      }
+
       group.items.sort((a, b) {
         final sa = a.score?.total ?? 0;
-
         final sb = b.score?.total ?? 0;
 
         return sb.compareTo(sa);
       });
 
+      // بعد از Sort بهترین عکس آیتم صفر است.
       group.selectedIndex = 0;
+
+      // انتخاب قبلی بر اساس index دیگر معتبر نیست.
+      // بنابراین انتخاب را روی عکس اصلی جدید تنظیم می‌کنیم.
+      group.selectedIndices
+        ..clear()
+        ..add(0);
     }
   }
 
@@ -43,9 +62,9 @@ class BestPhotoSelector {
 
     double score = item.score!.total;
 
-    //----------------------------------
+    // ----------------------------------
     // 1- Blur
-    //----------------------------------
+    // ----------------------------------
 
     if (item.blurScore < 0.30) {
       score -= 100;
@@ -53,27 +72,29 @@ class BestPhotoSelector {
       score -= 20;
     }
 
-    //----------------------------------
+    // ----------------------------------
     // 2- بدون چهره
-    //----------------------------------
+    // ----------------------------------
 
     if (item.faces.isEmpty) {
       score -= 5;
     }
 
-    //----------------------------------
+    // ----------------------------------
     // 3- فقط سه چهره بزرگ
-    //----------------------------------
+    // ----------------------------------
 
     final faces = [...item.faces];
 
-    faces.sort((a, b) => b.faceArea.compareTo(a.faceArea));
+    faces.sort(
+      (a, b) => b.faceArea.compareTo(a.faceArea),
+    );
 
     final topFaces = faces.take(3);
 
-    //----------------------------------
+    // ----------------------------------
     // 4- چشم بسته
-    //----------------------------------
+    // ----------------------------------
 
     for (final face in topFaces) {
       if (face.leftEyeOpenProbability < 0.5) {
@@ -85,9 +106,9 @@ class BestPhotoSelector {
       }
     }
 
-    //----------------------------------
+    // ----------------------------------
     // 5- نیم رخ
-    //----------------------------------
+    // ----------------------------------
 
     for (final face in topFaces) {
       if (face.headEulerY.abs() > 20) {
@@ -99,17 +120,17 @@ class BestPhotoSelector {
       }
     }
 
-    //----------------------------------
+    // ----------------------------------
     // 6- لبخند
-    //----------------------------------
+    // ----------------------------------
 
     for (final face in topFaces) {
       score += face.smilingProbability * 2;
     }
 
-    //----------------------------------
+    // ----------------------------------
     // 7- چهره بزرگتر
-    //----------------------------------
+    // ----------------------------------
 
     if (topFaces.isNotEmpty) {
       score += topFaces.first.faceArea / 100000;

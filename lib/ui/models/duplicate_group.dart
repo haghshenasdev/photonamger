@@ -3,13 +3,13 @@ import 'media_item.dart';
 class DuplicateGroup {
   final List<MediaItem> items;
 
-  /// عکس منتخب گروه
+  /// عکس اصلی گروه
   int selectedIndex;
 
-  /// تمام عکس‌هایی که کاربر از این گروه انتخاب کرده است.
+  /// تمام عکس‌هایی که کاربر از گروه انتخاب کرده است.
   ///
-  /// selectedIndex همچنان عکس اصلی را مشخص می‌کند،
-  /// ولی selectedIndices اجازه انتخاب چند عکس را می‌دهد.
+  /// selectedIndex فقط مشخص می‌کند کدام عکس Primary است.
+  /// selectedIndices مشخص می‌کند کدام عکس‌ها باید نگه داشته شوند.
   Set<int> selectedIndices;
 
   /// امتیاز بهترین عکس
@@ -26,6 +26,7 @@ class DuplicateGroup {
     this.analyzed = false,
   }) : selectedIndices = selectedIndices ?? {selectedIndex};
 
+  /// عکس اصلی
   MediaItem get primary => items[selectedIndex];
 
   /// عکس‌های انتخاب‌شده
@@ -41,17 +42,24 @@ class DuplicateGroup {
     return selectedIndices.contains(index);
   }
 
-  /// افزودن/حذف عکس از انتخاب‌ها
+  /// انتخاب / لغو انتخاب یک عکس
   void toggleSelection(int index) {
-    if (selectedIndices.contains(index)) {
-      // اجازه نده همه عکس‌ها از انتخاب خارج شوند.
-      if (selectedIndices.length > 1) {
-        selectedIndices.remove(index);
+    if (index < 0 || index >= items.length) {
+      return;
+    }
 
-        // اگر عکس اصلی حذف شد، یکی دیگر را اصلی کن.
-        if (selectedIndex == index) {
-          selectedIndex = selectedIndices.first;
-        }
+    if (selectedIndices.contains(index)) {
+      // اجازه نمی‌دهیم همه عکس‌های گروه از انتخاب خارج شوند.
+      if (selectedIndices.length <= 1) {
+        return;
+      }
+
+      selectedIndices.remove(index);
+
+      // اگر عکس اصلی لغو انتخاب شد،
+      // یکی از عکس‌های انتخاب‌شده را اصلی می‌کنیم.
+      if (selectedIndex == index) {
+        selectedIndex = selectedIndices.first;
       }
     } else {
       selectedIndices.add(index);
@@ -59,8 +67,45 @@ class DuplicateGroup {
   }
 
   /// انتخاب یک عکس به عنوان عکس اصلی
+  ///
+  /// عکس اصلی همیشه باید در selectedIndices باشد.
   void setPrimary(int index) {
+    if (index < 0 || index >= items.length) {
+      return;
+    }
+
     selectedIndex = index;
     selectedIndices.add(index);
+  }
+
+  /// انتخاب فقط یک عکس
+  void selectOnly(int index) {
+    if (index < 0 || index >= items.length) {
+      return;
+    }
+
+    selectedIndex = index;
+
+    selectedIndices
+      ..clear()
+      ..add(index);
+  }
+
+  /// بعد از Sort یا تحلیل مجدد
+  /// انتخاب‌ها را روی عکس اصلی تنظیم می‌کند.
+  void resetSelectionToPrimary() {
+    if (items.isEmpty) {
+      selectedIndex = 0;
+      selectedIndices.clear();
+      return;
+    }
+
+    if (selectedIndex < 0 || selectedIndex >= items.length) {
+      selectedIndex = 0;
+    }
+
+    selectedIndices
+      ..clear()
+      ..add(selectedIndex);
   }
 }

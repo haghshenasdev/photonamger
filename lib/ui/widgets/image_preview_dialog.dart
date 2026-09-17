@@ -21,6 +21,8 @@ class ImagePreviewDialog extends StatefulWidget {
 
 class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
   late int currentIndex;
+
+  /// ایندکس عکس فعلی داخل گروه Duplicate
   int duplicateIndex = 0;
 
   final FocusNode _focusNode = FocusNode();
@@ -28,14 +30,19 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
   @override
   void initState() {
     super.initState();
+
     currentIndex = widget.initialIndex;
 
     if (widget.items[currentIndex].isDuplicate) {
-      duplicateIndex = widget.items[currentIndex].duplicate!.selectedIndex;
+      final group = widget.items[currentIndex].duplicate!;
+
+      duplicateIndex = group.selectedIndex;
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _focusNode.requestFocus();
+      if (mounted) {
+        _focusNode.requestFocus();
+      }
     });
   }
 
@@ -47,15 +54,21 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
 
   PreviewItem get current => widget.items[currentIndex];
 
+  // ============================================================
+  // Navigation
+  // ============================================================
+
   void nextImage() {
     if (current.isDuplicate) {
       final group = current.duplicate!;
 
-      // هنوز داخل Duplicate عکس بعدی وجود دارد
+      // اگر داخل تصاویر Duplicate هنوز تصویر بعدی داریم
       if (duplicateIndex < group.items.length - 1) {
         setState(() {
           duplicateIndex++;
         });
+
+        _requestFocus();
 
         return;
       }
@@ -74,21 +87,26 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
           duplicateIndex = 0;
         }
       });
+
+      _requestFocus();
     }
   }
 
   void previousImage() {
     if (current.isDuplicate) {
-      // هنوز داخل Duplicate هستیم
+      // اگر داخل گروه Duplicate هستیم
       if (duplicateIndex > 0) {
         setState(() {
           duplicateIndex--;
         });
 
+        _requestFocus();
+
         return;
       }
     }
 
+    // رفتن به آیتم قبلی Grid
     if (currentIndex > 0) {
       setState(() {
         currentIndex--;
@@ -101,8 +119,14 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
           duplicateIndex = 0;
         }
       });
+
+      _requestFocus();
     }
   }
+
+  // ============================================================
+  // Keyboard
+  // ============================================================
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) {
@@ -124,14 +148,9 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
       return KeyEventResult.handled;
     }
 
+    // Space = انتخاب / لغو انتخاب
     if (event.logicalKey == LogicalKeyboardKey.space) {
-      setState(() {
-        if (current.isDuplicate) {
-          current.duplicate!.selectedIndex = duplicateIndex;
-        } else {
-          current.media!.isSelected = !current.media!.isSelected;
-        }
-      });
+      _toggleCurrentSelection();
 
       return KeyEventResult.handled;
     }
@@ -139,19 +158,56 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
     return KeyEventResult.ignored;
   }
 
+  void _toggleCurrentSelection() {
+    if (current.isDuplicate) {
+      final group = current.duplicate!;
+
+      setState(() {
+        group.toggleSelection(duplicateIndex);
+      });
+
+      _requestFocus();
+
+      return;
+    }
+
+    // برای تصاویر معمولی همان رفتار قبلی
+    final media = current.media!;
+
+    setState(() {
+      media.isSelected = !media.isSelected;
+    });
+
+    _requestFocus();
+  }
+
+  void _requestFocus() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _focusNode.requestFocus();
+      }
+    });
+  }
+
+  // ============================================================
+  // Build
+  // ============================================================
+
   @override
   Widget build(BuildContext context) {
     return ContentDialog(
       constraints: const BoxConstraints(maxWidth: 1400, maxHeight: 900),
+
       title: Text(
         current.isMedia
-            ? "${currentIndex + 1} / ${widget.items.length}"
-            : "${currentIndex + 1} / ${widget.items.length}"
-                  "    "
-                  "(${duplicateIndex + 1}"
-                  "/"
-                  "${current.duplicate!.items.length})",
+            ? '${currentIndex + 1} / ${widget.items.length}'
+            : '${currentIndex + 1} / ${widget.items.length}'
+                  '    '
+                  '(${duplicateIndex + 1}'
+                  '/'
+                  '${current.duplicate!.items.length})',
       ),
+
       content: Focus(
         autofocus: true,
         focusNode: _focusNode,
@@ -165,6 +221,7 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
                 child: current.isMedia ? _buildMedia() : _buildDuplicate(),
               ),
 
+              // Previous
               if (currentIndex > 0)
                 Positioned(
                   left: 10,
@@ -178,6 +235,7 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
                   ),
                 ),
 
+              // Next
               if (currentIndex < widget.items.length - 1)
                 Positioned(
                   right: 10,
@@ -210,14 +268,21 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
           ),
         ),
       ),
+
       actions: [
         Button(
           child: const Text('بستن'),
-          onPressed: () => Navigator.pop(context, true),
+          onPressed: () {
+            Navigator.pop(context, true);
+          },
         ),
       ],
     );
   }
+
+  // ============================================================
+  // Video
+  // ============================================================
 
   Widget _buildVideoFileName() {
     return IgnorePointer(
@@ -256,7 +321,7 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
   Widget _buildFileName() {
     final fileName = current.isMedia
         ? current.media!.fileName
-        : current.duplicate!.items[current.duplicate!.selectedIndex].fileName;
+        : current.duplicate!.items[duplicateIndex].fileName;
 
     return Container(
       padding: const EdgeInsets.all(8),
@@ -268,6 +333,10 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
       ),
     );
   }
+
+  // ============================================================
+  // Normal Media
+  // ============================================================
 
   Widget _buildMedia() {
     final item = current.media!;
@@ -308,24 +377,18 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
     );
   }
 
-  Future<void> _openFullscreenVideo(String path) async {
-    await showDialog(
-      context: context,
-      barrierColor: Colors.black,
-      builder: (_) {
-        return _FullscreenVideoDialog(path: path);
-      },
-    );
-
-    if (!mounted) return;
-
-    _focusNode.requestFocus();
-  }
+  // ============================================================
+  // Duplicate
+  // ============================================================
 
   Widget _buildDuplicate() {
     final group = current.duplicate!;
 
-    if (duplicateIndex >= group.items.length) {
+    if (group.items.isEmpty) {
+      return const Center(child: Text('تصویری در این گروه وجود ندارد'));
+    }
+
+    if (duplicateIndex < 0 || duplicateIndex >= group.items.length) {
       duplicateIndex = group.selectedIndex;
     }
 
@@ -333,18 +396,55 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
 
     return Row(
       children: [
+        // ========================================================
+        // Preview
+        // ========================================================
         Expanded(
           flex: 3,
           child: Card(
             child: Column(
               children: [
                 Expanded(
-                  child: InteractiveViewer(
-                    minScale: 0.5,
-                    maxScale: 8,
-                    child: Center(
-                      child: Image.file(File(item.path), fit: BoxFit.contain),
-                    ),
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: InteractiveViewer(
+                          minScale: 0.5,
+                          maxScale: 8,
+                          child: Center(
+                            child: Image.file(
+                              File(item.path),
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      // تیک انتخاب عکس فعلی
+                      Positioned(
+                        top: 12,
+                        right: 12,
+                        child: _selectionIcon(
+                          group.isSelected(duplicateIndex),
+                          size: 30,
+                        ),
+                      ),
+
+                      // ستاره عکس اصلی
+                      Positioned(
+                        top: 12,
+                        left: 12,
+                        child: Icon(
+                          group.selectedIndex == duplicateIndex
+                              ? FluentIcons.favorite_star_fill
+                              : FluentIcons.favorite_star,
+                          color: group.selectedIndex == duplicateIndex
+                              ? Colors.orange
+                              : Colors.white,
+                          size: 28,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
 
@@ -359,13 +459,31 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
 
         const SizedBox(width: 10),
 
+        // ========================================================
+        // Duplicate List
+        // ========================================================
         SizedBox(
-          width: 330,
+          width: 350,
           child: Column(
             children: [
-              const Text(
-                "نسخه های مشابه",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'نسخه های مشابه',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+
+                  InfoBadge(
+                    source: Text(
+                      '${group.selectedIndices.length}/${group.items.length}',
+                    ),
+                  ),
+                ],
               ),
 
               const SizedBox(height: 10),
@@ -377,48 +495,101 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
                   itemBuilder: (_, index) {
                     final file = group.items[index];
 
-                    final selected = duplicateIndex == index;
+                    // selected یعنی عکس فعلی که Preview شده است.
+                    // این با selectedIndices فرق دارد.
+                    final isPreviewed = duplicateIndex == index;
 
-                    return GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          duplicateIndex = index;
-                        });
-                      },
+                    final isChecked = group.isSelected(index);
 
-                      child: Container(
-                        margin: const EdgeInsets.only(bottom: 8),
+                    final isPrimary = group.selectedIndex == index;
 
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(8),
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
 
-                          border: Border.all(
-                            color: selected ? Colors.blue : Colors.grey[80],
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
 
-                            width: selected ? 2 : 1,
-                          ),
+                        border: Border.all(
+                          color: isPreviewed ? Colors.blue : Colors.grey[80],
+                          width: isPreviewed ? 2 : 1,
                         ),
+                      ),
 
-                        child: Padding(
-                          padding: const EdgeInsets.all(8),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
 
-                          child: Row(
-                            children: [
-                              SizedBox(
-                                width: 70,
+                        child: Row(
+                          children: [
+                            // ==================================================
+                            // Checkbox / Tick
+                            // ==================================================
+                            GestureDetector(
+                              behavior: HitTestBehavior.opaque,
 
-                                height: 70,
+                              onTap: () {
+                                setState(() {
+                                  group.toggleSelection(index);
+                                });
 
-                                child: Image.file(
-                                  File(file.path),
+                                _requestFocus();
+                              },
 
-                                  fit: BoxFit.cover,
+                              child: Padding(
+                                padding: const EdgeInsets.only(right: 2),
+                                child: _selectionIcon(isChecked, size: 24),
+                              ),
+                            ),
+
+                            const SizedBox(width: 8),
+
+                            // ==================================================
+                            // Image
+                            // ==================================================
+                            GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+
+                              onTap: () {
+                                setState(() {
+                                  // فقط Preview تغییر می‌کند.
+                                  // انتخاب تغییر نمی‌کند.
+                                  duplicateIndex = index;
+                                });
+
+                                _requestFocus();
+                              },
+
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(6),
+
+                                child: SizedBox(
+                                  width: 70,
+                                  height: 70,
+                                  child: Image.file(
+                                    File(file.path),
+                                    fit: BoxFit.cover,
+                                  ),
                                 ),
                               ),
+                            ),
 
-                              const SizedBox(width: 8),
+                            const SizedBox(width: 8),
 
-                              Expanded(
+                            // ==================================================
+                            // File info
+                            // ==================================================
+                            Expanded(
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+
+                                onTap: () {
+                                  setState(() {
+                                    // فقط Preview
+                                    duplicateIndex = index;
+                                  });
+
+                                  _requestFocus();
+                                },
+
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
 
@@ -433,35 +604,52 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
                                     Text(
                                       file.createdAt.toString(),
                                       style: const TextStyle(fontSize: 11),
+                                      overflow: TextOverflow.ellipsis,
                                     ),
                                   ],
                                 ),
                               ),
+                            ),
 
-                              IconButton(
-                                icon: Icon(
-                                  group.selectedIndex == index
-                                      ? FluentIcons.favorite_star_fill
-                                      : FluentIcons.favorite_star,
+                            // ==================================================
+                            // Primary Star
+                            // ==================================================
+                            IconButton(
+                              icon: Icon(
+                                isPrimary
+                                    ? FluentIcons.favorite_star_fill
+                                    : FluentIcons.favorite_star,
 
-                                  color: group.selectedIndex == index
-                                      ? Colors.orange
-                                      : Colors.grey,
-                                ),
-
-                                onPressed: () {
-                                  setState(() {
-                                    group.selectedIndex = index;
-                                  });
-                                },
+                                color: isPrimary ? Colors.orange : Colors.grey,
                               ),
-                            ],
-                          ),
+
+                              onPressed: () {
+                                setState(() {
+                                  // عکس اصلی حتماً انتخاب هم می‌شود.
+                                  group.setPrimary(index);
+
+                                  // Preview هم روی همین عکس قرار می‌گیرد.
+                                  duplicateIndex = index;
+                                });
+
+                                _requestFocus();
+                              },
+                            ),
+                          ],
                         ),
                       ),
                     );
                   },
                 ),
+              ),
+
+              const SizedBox(height: 8),
+
+              // راهنمای کوتاه
+              Text(
+                'تیک: انتخاب/لغو انتخاب    •    Space: انتخاب عکس فعلی',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 11, color: Colors.grey[100]),
               ),
             ],
           ),
@@ -469,7 +657,42 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
       ],
     );
   }
+
+  // ============================================================
+  // Selection icon
+  // دقیقاً با همان سبک MediaGrid
+  // ============================================================
+
+  Widget _selectionIcon(bool selected, {double size = 24}) {
+    return Icon(
+      selected ? FluentIcons.checkbox_composite : FluentIcons.checkbox,
+      color: selected ? Colors.green : Colors.white,
+      size: size,
+    );
+  }
+
+  // ============================================================
+  // Fullscreen video
+  // ============================================================
+
+  Future<void> _openFullscreenVideo(String path) async {
+    await showDialog(
+      context: context,
+      barrierColor: Colors.black,
+      builder: (_) {
+        return _FullscreenVideoDialog(path: path);
+      },
+    );
+
+    if (!mounted) return;
+
+    _requestFocus();
+  }
 }
+
+// ================================================================
+// Fullscreen Video
+// ================================================================
 
 class _FullscreenVideoDialog extends StatefulWidget {
   final String path;
@@ -485,24 +708,30 @@ class _FullscreenVideoDialogState extends State<_FullscreenVideoDialog> {
   Widget build(BuildContext context) {
     return Focus(
       autofocus: true,
+
       onKeyEvent: (_, event) {
         if (event is KeyDownEvent &&
             event.logicalKey == LogicalKeyboardKey.escape) {
           Navigator.pop(context);
+
           return KeyEventResult.handled;
         }
 
         return KeyEventResult.ignored;
       },
+
       child: Container(
         color: Colors.black,
         width: double.infinity,
         height: double.infinity,
+
         child: Stack(
           fit: StackFit.expand,
+
           children: [
             VideoPreview(
               path: widget.path,
+
               onFullscreen: () {
                 Navigator.pop(context);
               },
@@ -511,12 +740,14 @@ class _FullscreenVideoDialogState extends State<_FullscreenVideoDialog> {
             Positioned(
               top: 12,
               right: 12,
+
               child: IconButton(
                 icon: const Icon(
                   FluentIcons.chrome_close,
                   color: Colors.white,
                   size: 18,
                 ),
+
                 onPressed: () {
                   Navigator.pop(context);
                 },
