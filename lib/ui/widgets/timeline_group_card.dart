@@ -414,6 +414,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
         return GroupMetadataDialog(
           groupTitle: group.title,
           metadata: group.metadata,
+          groups: widget.groups,
         );
       },
     );

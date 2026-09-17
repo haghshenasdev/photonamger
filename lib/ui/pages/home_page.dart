@@ -1011,9 +1011,7 @@ class _HomePageState extends State<HomePage> {
     try {
       _syncProjectState();
 
-      final path = await ProjectFileService.saveProjectAs(
-        _ensureProject(),
-      );
+      final path = await ProjectFileService.saveProjectAs(_ensureProject());
 
       if (path == null) return;
 
@@ -1077,10 +1075,7 @@ class _HomePageState extends State<HomePage> {
       if (path == null || path.trim().isEmpty) return;
       if (!await File(path).exists()) return;
 
-      await _loadProjectFromPath(
-        path,
-        showRecoveryPrompt: true,
-      );
+      await _loadProjectFromPath(path, showRecoveryPrompt: true);
     } catch (e) {
       debugPrint('Last project restore error: $e');
     }
@@ -1290,8 +1285,7 @@ class _HomePageState extends State<HomePage> {
             _scheduleProjectSave();
           },
           onOperationChanged: (operation) {
-            if (operation.status ==
-                    ProjectOperationStatus.completed ||
+            if (operation.status == ProjectOperationStatus.completed ||
                 operation.status == ProjectOperationStatus.failed) {
               _scheduleProjectSave();
             }
