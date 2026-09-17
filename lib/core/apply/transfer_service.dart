@@ -40,7 +40,7 @@ class TransferService {
   final MetadataService metadataService;
 
   TransferService({MetadataService? metadataService})
-      : metadataService = metadataService ?? const MetadataService();
+    : metadataService = metadataService ?? const MetadataService();
 
   /// قبل از شروع انتقال، تمام عملیات را با مقصد مشخص در پروژه ثبت می‌کند.
   ///
@@ -57,9 +57,14 @@ class TransferService {
     final duplicateFiles = <String>{};
 
     for (final group in duplicateGroups) {
-      selectedDuplicateFiles.add(_key(group.primary.path));
+      for (final index in group.selectedIndices) {
+        if (index >= 0 && index < group.items.length) {
+          selectedDuplicateFiles.add(group.items[index].path);
+        }
+      }
+
       for (final item in group.items) {
-        duplicateFiles.add(_key(item.path));
+        duplicateFiles.add(item.path);
       }
     }
 
@@ -88,13 +93,12 @@ class TransferService {
         final isDuplicate = duplicateFiles.contains(key);
         final isSelectedDuplicate = selectedDuplicateFiles.contains(key);
 
-        final shouldKeep = isDuplicate
-            ? isSelectedDuplicate
-            : item.isSelected;
+        final shouldKeep = isDuplicate ? isSelectedDuplicate : item.isSelected;
 
         // در حالت اعمال درجا، هر فایل انتخاب‌نشده یا duplicate غیرمنتخب
         // به For Delete منتقل می‌شود.
-        final shouldDelete = settings.outputFolder.trim().isEmpty &&
+        final shouldDelete =
+            settings.outputFolder.trim().isEmpty &&
             !shouldKeep &&
             settings.moveFiles;
 
@@ -102,9 +106,7 @@ class TransferService {
           continue;
         }
 
-        final destinationFolder = shouldDelete
-            ? deleteFolder!
-            : groupFolder;
+        final destinationFolder = shouldDelete ? deleteFolder! : groupFolder;
 
         final existing = _findOperation(
           operations,
@@ -173,7 +175,8 @@ class TransferService {
       final metadataDirectory = Directory(existingMetadataDirectory);
 
       if (await metadataDirectory.exists()) {
-        final allInsideMetadata = group.items.isNotEmpty &&
+        final allInsideMetadata =
+            group.items.isNotEmpty &&
             group.items.every(
               (item) => _isSameOrDirectChild(item.path, metadataDirectory.path),
             );
@@ -198,7 +201,8 @@ class TransferService {
       group.items.map((item) => File(item.path).parent.path).toList(),
     );
 
-    final base = commonParent ??
+    final base =
+        commonParent ??
         (group.items.isNotEmpty
             ? File(group.items.first.path).parent.path
             : Directory.current.path);
@@ -225,9 +229,7 @@ class TransferService {
     int commonLength = first.length;
 
     for (final parts in splitPaths.skip(1)) {
-      commonLength = commonLength < parts.length
-          ? commonLength
-          : parts.length;
+      commonLength = commonLength < parts.length ? commonLength : parts.length;
 
       for (int i = 0; i < commonLength; i++) {
         if (_key(first[i]) != _key(parts[i])) {
@@ -296,8 +298,7 @@ class TransferService {
       // عملیات completed ممکن است بعد از Save انجام شده باشد و path آیتم
       // در فایل پروژه هنوز source باشد. در این حالت آن را اصلاح می‌کنیم.
       if (operation.isFinished) {
-        if (item != null &&
-            _key(item.path) == _key(operation.sourcePath)) {
+        if (item != null && _key(item.path) == _key(operation.sourcePath)) {
           item.updatePath(operation.destinationPath);
         }
         continue;
@@ -328,10 +329,7 @@ class TransferService {
 
         if (!completedFromDisk) {
           if (!await source.exists()) {
-            throw FileSystemException(
-              'فایل مبدا پیدا نشد.',
-              source.path,
-            );
+            throw FileSystemException('فایل مبدا پیدا نشد.', source.path);
           }
 
           await _transferFile(
@@ -518,10 +516,7 @@ class TransferService {
       final tempLength = await temp.length();
 
       if (sourceLength != tempLength) {
-        throw FileSystemException(
-          'کپی فایل کامل نشده است.',
-          destinationPath,
-        );
+        throw FileSystemException('کپی فایل کامل نشده است.', destinationPath);
       }
 
       if (await destination.exists()) {
@@ -535,10 +530,7 @@ class TransferService {
     }
 
     if (!await destination.exists()) {
-      throw FileSystemException(
-        'فایل مقصد ایجاد نشد.',
-        destinationPath,
-      );
+      throw FileSystemException('فایل مقصد ایجاد نشد.', destinationPath);
     }
   }
 
@@ -559,10 +551,7 @@ class TransferService {
     int counter = 1;
 
     while (true) {
-      final candidate = p.join(
-        directory,
-        '$basename ($counter)$extension',
-      );
+      final candidate = p.join(directory, '$basename ($counter)$extension');
 
       if (!await File(candidate).exists() &&
           !reservedPaths.contains(_key(candidate))) {
@@ -578,8 +567,7 @@ class TransferService {
     String sourcePath,
     bool move,
   ) {
-    final type =
-        move ? ProjectOperationType.move : ProjectOperationType.copy;
+    final type = move ? ProjectOperationType.move : ProjectOperationType.copy;
 
     for (final operation in operations.reversed) {
       if (operation.type == type &&

@@ -489,7 +489,11 @@ class _HomePageState extends State<HomePage> {
     final duplicateFiles = <String>{};
 
     for (final group in duplicateGroups) {
-      selectedDuplicateFiles.add(group.primary.path);
+      for (final index in group.selectedIndices) {
+        if (index >= 0 && index < group.items.length) {
+          selectedDuplicateFiles.add(group.items[index].path);
+        }
+      }
 
       for (final item in group.items) {
         duplicateFiles.add(item.path);
