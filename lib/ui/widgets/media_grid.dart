@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:fgphoto/core/file_explorer_service.dart';
 import 'package:fgphoto/ui/models/girid_item.dart';
 import 'package:fgphoto/ui/models/media_item.dart';
 import 'package:fgphoto/ui/models/preview_item.dart';
@@ -64,7 +65,7 @@ class MediaGrid extends StatelessWidget {
   }
 }
 
-class _MediaTile extends StatelessWidget {
+class _MediaTile extends StatefulWidget {
   final MediaItem item;
 
   final List<PreviewItem> previewItems;
@@ -77,69 +78,145 @@ class _MediaTile extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () async {
-        final index = previewItems.indexWhere(
-          (e) => e.isMedia && e.media!.path == item.path,
-        );
+  State<_MediaTile> createState() => _MediaTileState();
+}
 
-        final changed = await showDialog<bool>(
-          context: context,
-          builder: (_) =>
-              ImagePreviewDialog(items: previewItems, initialIndex: index),
-        );
+class _MediaTileState extends State<_MediaTile> {
+  late final FlyoutController _flyoutController;
 
-        if (changed == true) {
-          onChanged?.call();
-        }
-      },
+  @override
+  void initState() {
+    super.initState();
 
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
+    _flyoutController = FlyoutController();
+  }
 
-        child: Stack(
-          fit: StackFit.expand,
+  @override
+  void dispose() {
+    _flyoutController.dispose();
 
-          children: [
-            if (!item.isVideo) Image.file(File(item.path), fit: BoxFit.cover),
+    super.dispose();
+  }
 
-            if (item.isVideo) VideoThumbnail(path: item.path),
+  Future<void> _openPreview() async {
+    final index = widget.previewItems.indexWhere(
+      (e) => e.isMedia && e.media!.path == widget.item.path,
+    );
 
-            Positioned(
-              bottom: 0,
+    if (index < 0) {
+      return;
+    }
 
-              left: 0,
+    final changed = await showDialog<bool>(
+      context: context,
+      builder: (_) =>
+          ImagePreviewDialog(items: widget.previewItems, initialIndex: index),
+    );
 
-              right: 0,
+    if (changed == true) {
+      widget.onChanged?.call();
+    }
 
-              child: Container(
-                padding: const EdgeInsets.all(4),
+    if (mounted) {
+      setState(() {});
+    }
+  }
 
-                color: Colors.black.withAlpha(150),
+  void _showContextMenu(Offset position) {
+    _flyoutController.showFlyout<void>(
+      position: position,
+      builder: (context) {
+        return MenuFlyout(
+          items: [
+            MenuFlyoutItem(
+              leading: const Icon(FluentIcons.open_folder_horizontal),
+              text: const Text('نمایش فایل در File Explorer'),
+              onPressed: () async {
+                _flyoutController.close();
 
-                child: Text(
-                  item.fileName,
-
-                  style: const TextStyle(fontSize: 10, color: Colors.white),
-
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
+                await FileExplorerService.revealFile(widget.item.path);
+              },
             ),
 
-            Positioned(
-              top: 5,
-              right: 5,
-              child: Icon(
-                item.isSelected
-                    ? FluentIcons.checkbox_composite
-                    : FluentIcons.checkbox,
-                color: item.isSelected ? Colors.green : Colors.white,
-                size: 18,
-              ),
+            MenuFlyoutItem(
+              leading: const Icon(FluentIcons.folder_open),
+              text: const Text('باز کردن پوشه فایل'),
+              onPressed: () async {
+                _flyoutController.close();
+
+                await FileExplorerService.openFolder(
+                  FileExplorerService.folderOf(widget.item.path),
+                );
+              },
             ),
           ],
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FlyoutTarget(
+      controller: _flyoutController,
+
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+
+        onTap: _openPreview,
+
+        onSecondaryTapUp: (details) {
+          _showContextMenu(details.globalPosition);
+        },
+
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+
+          child: Stack(
+            fit: StackFit.expand,
+
+            children: [
+              if (!widget.item.isVideo)
+                Image.file(File(widget.item.path), fit: BoxFit.cover),
+
+              if (widget.item.isVideo) VideoThumbnail(path: widget.item.path),
+
+              Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+
+                  color: Colors.black.withAlpha(150),
+
+                  child: Text(
+                    widget.item.fileName,
+
+                    style: const TextStyle(fontSize: 10, color: Colors.white),
+
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+
+              Positioned(
+                top: 5,
+                right: 5,
+
+                child: Icon(
+                  widget.item.isSelected
+                      ? FluentIcons.checkbox_composite
+                      : FluentIcons.checkbox,
+
+                  color: widget.item.isSelected ? Colors.green : Colors.white,
+
+                  size: 18,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
