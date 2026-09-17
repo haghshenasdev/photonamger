@@ -149,10 +149,10 @@ packages:
     dependency: "direct main"
     description:
       name: fluent_ui
-      sha256: "64c2b9dd208f8e3134d3e38db107235ee30c1dd9b792843274687a7ecc063590"
+      sha256: f43d3fe36a4003e1b53b62a58598a2a645f3b7e55a64de5c98807528e1979997
       url: "https://mirrors.tuna.tsinghua.edu.cn/dart-pub/"
     source: hosted
-    version: "4.16.1"
+    version: "4.11.0"
   flutter:
     dependency: "direct main"
     description: flutter
@@ -353,10 +353,10 @@ packages:
     dependency: transitive
     description:
       name: math_expressions
-      sha256: "22aca3a24e445be5f42ecf186cbded1f9951bf9ec5eb48fcddbd55e102bb11f5"
+      sha256: e32d803d758ace61cc6c4bdfed1226ff60a6a23646b35685670d28b5616139f8
       url: "https://mirrors.tuna.tsinghua.edu.cn/dart-pub/"
     source: hosted
-    version: "3.2.0"
+    version: "2.6.0"
   meta:
     dependency: transitive
     description:
