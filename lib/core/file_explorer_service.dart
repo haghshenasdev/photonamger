@@ -7,33 +7,80 @@ class FileExplorerService {
   FileExplorerService._();
 
   // ============================================================
-  // Windows Shell32
+  // Windows DLL
   // ============================================================
 
   static final DynamicLibrary _shell32 = DynamicLibrary.open('shell32.dll');
 
-  static final int Function(Pointer<Utf16>, Pointer<Pointer<Void>>)
-  _ilCreateFromPath = _shell32
+  static final DynamicLibrary _ole32 = DynamicLibrary.open('ole32.dll');
+
+  // ============================================================
+  // SHParseDisplayName
+  //
+  // HRESULT SHParseDisplayName(
+  //   PCWSTR pszName,
+  //   IBindCtx* pbc,
+  //   PIDLIST_ABSOLUTE* ppidl,
+  //   SFGAOF sfgaoIn,
+  //   SFGAOF* psfgaoOut
+  // );
+  // ============================================================
+
+  static final int Function(
+    Pointer<Utf16>,
+    Pointer<Void>,
+    Pointer<Pointer<Void>>,
+    int,
+    Pointer<Uint32>,
+  )
+  _shParseDisplayName = _shell32
       .lookupFunction<
-        Int32 Function(Pointer<Utf16>, Pointer<Pointer<Void>>),
-        int Function(Pointer<Utf16>, Pointer<Pointer<Void>>)
+        Int32 Function(
+          Pointer<Utf16>,
+          Pointer<Void>,
+          Pointer<Pointer<Void>>,
+          Uint32,
+          Pointer<Uint32>,
+        ),
+        int Function(
+          Pointer<Utf16>,
+          Pointer<Void>,
+          Pointer<Pointer<Void>>,
+          int,
+          Pointer<Uint32>,
+        )
       >('SHParseDisplayName');
 
-  static final int Function(Pointer<Void>, int, Pointer<Pointer<Void>>, int)
+  // ============================================================
+  // SHOpenFolderAndSelectItems
+  //
+  // HRESULT SHOpenFolderAndSelectItems(
+  //   PCIDLIST_ABSOLUTE pidlFolder,
+  //   UINT cidl,
+  //   PCUITEMID_CHILD_ARRAY apidl,
+  //   DWORD dwFlags
+  // );
+  // ============================================================
+
+  static final int Function(Pointer<Void>, int, Pointer<Void>, int)
   _shOpenFolderAndSelectItems = _shell32
       .lookupFunction<
-        Int32 Function(Pointer<Void>, Uint32, Pointer<Pointer<Void>>, Uint32),
-        int Function(Pointer<Void>, int, Pointer<Pointer<Void>>, int)
+        Int32 Function(Pointer<Void>, Uint32, Pointer<Void>, Uint32),
+        int Function(Pointer<Void>, int, Pointer<Void>, int)
       >('SHOpenFolderAndSelectItems');
 
-  static final void Function(Pointer<Void>) _ilFree = _shell32
+  // ============================================================
+  // CoTaskMemFree
+  // ============================================================
+
+  static final void Function(Pointer<Void>) _coTaskMemFree = _ole32
       .lookupFunction<
         Void Function(Pointer<Void>),
         void Function(Pointer<Void>)
-      >('ILFree');
+      >('CoTaskMemFree');
 
   // ============================================================
-  // Reveal File
+  // نمایش فایل در Windows File Explorer
   // ============================================================
 
   static Future<bool> revealFile(String filePath) async {
@@ -51,36 +98,45 @@ class FileExplorerService {
       final absolutePath = file.absolute.path;
 
       return using((arena) {
-        final path = absolutePath.toNativeUtf16();
+        // مسیر فایل به UTF-16
+        final nativePath = absolutePath.toNativeUtf16();
 
-        // خروجی SHParseDisplayName
-        final pidlPointer = arena<Pointer<Void>>();
+        // محل دریافت PIDL
+        final pidlOut = arena<Pointer<Void>>();
 
-        final parseResult = _ilCreateFromPath(path, pidlPointer);
+        // خروجی attribute ها
+        final attributesOut = arena<Uint32>();
 
+        pidlOut.value = nullptr;
+        attributesOut.value = 0;
+
+        // تبدیل مسیر فایل به PIDL
+        final parseResult = _shParseDisplayName(
+          nativePath,
+          nullptr,
+          pidlOut,
+          0,
+          attributesOut,
+        );
+
+        // S_OK = 0
         if (parseResult != 0) {
           return false;
         }
 
-        final pidl = pidlPointer.value;
+        final pidl = pidlOut.value;
 
         if (pidl == nullptr) {
           return false;
         }
 
         try {
-          /*
-           * cidl = 0
-           *
-           * در این حالت pidl یک PIDL کامل است
-           * و Windows Shell خودش پوشه والد را باز
-           * کرده و آیتم را انتخاب می‌کند.
-           */
+          // باز کردن Explorer و انتخاب فایل
           final result = _shOpenFolderAndSelectItems(pidl, 0, nullptr, 0);
 
           return result == 0;
         } finally {
-          _ilFree(pidl);
+          _coTaskMemFree(pidl);
         }
       });
     } catch (_) {
@@ -89,7 +145,7 @@ class FileExplorerService {
   }
 
   // ============================================================
-  // Open Folder
+  // باز کردن پوشه
   // ============================================================
 
   static Future<bool> openFolder(String folderPath) async {
@@ -115,17 +171,22 @@ class FileExplorerService {
   }
 
   // ============================================================
-  // Helpers
+  // گرفتن پوشه والد فایل
   // ============================================================
 
   static String folderOf(String filePath) {
     return File(filePath).parent.path;
   }
 
-  static Future<bool> revealOrOpen(String filePath) async {
-    final result = await revealFile(filePath);
+  // ============================================================
+  // ابتدا فایل را نمایش بده
+  // اگر نشد، پوشه را باز کن
+  // ============================================================
 
-    if (result) {
+  static Future<bool> revealOrOpen(String filePath) async {
+    final revealed = await revealFile(filePath);
+
+    if (revealed) {
       return true;
     }
 
