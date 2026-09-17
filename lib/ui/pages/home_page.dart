@@ -105,17 +105,7 @@ class _HomePageState extends State<HomePage> {
               paths: sourcePaths,
               onAdd: addSourceFolder,
               onRemove: removeSourceFolder,
-            ),
-            FilledButton(
-              onPressed: sourcePaths.isEmpty ? null : scanSourceFolders,
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(FluentIcons.search, size: 16),
-                  SizedBox(width: 8),
-                  Text('شروع اسکن و آنالیز'),
-                ],
-              ),
+              onScan: scanSourceFolders,
             ),
             const SizedBox(height: 12),
 

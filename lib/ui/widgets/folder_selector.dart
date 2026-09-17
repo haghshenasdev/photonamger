@@ -1,128 +1,279 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-class FolderSelector extends StatelessWidget {
+class FolderSelector extends StatefulWidget {
   final List<String> paths;
   final VoidCallback onAdd;
   final ValueChanged<String> onRemove;
+
+  /// شروع اسکن و آنالیز
+  final VoidCallback? onScan;
 
   const FolderSelector({
     super.key,
     required this.paths,
     required this.onAdd,
     required this.onRemove,
+    this.onScan,
   });
 
+  @override
+  State<FolderSelector> createState() => _FolderSelectorState();
+}
+
+class _FolderSelectorState extends State<FolderSelector> {
   static const int _maxPreviewPaths = 2;
+
+  /// به صورت پیش‌فرض بسته است.
+  bool _expanded = false;
+
+  @override
+  void didUpdateWidget(covariant FolderSelector oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // اگر همه مسیرها حذف شدند، دوباره باز شود تا
+    // کاربر پیام افزودن مسیر را ببیند.
+    if (oldWidget.paths.isNotEmpty && widget.paths.isEmpty) {
+      if (!_expanded) {
+        setState(() {
+          _expanded = true;
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final paths = widget.paths;
     final previewPaths = paths.take(_maxPreviewPaths).toList();
     final remainingCount = paths.length - previewPaths.length;
 
     return Card(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // ============================================================
-          // Header
-          // ============================================================
-          Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: Colors.blue.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(FluentIcons.folder_open, size: 19),
-              ),
+          _buildHeader(context),
 
-              const SizedBox(width: 10),
-
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'مسیرهای آنالیز',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                      ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            child: _expanded
+                ? Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: _buildExpandedContent(
+                      context,
+                      previewPaths,
+                      remainingCount,
                     ),
-                    const SizedBox(height: 3),
-                    Text(
-                      paths.isEmpty
-                          ? 'مسیری برای بررسی انتخاب نشده است'
-                          : '${paths.length} مسیر انتخاب شده',
-                      style: TextStyle(fontSize: 12, color: Colors.grey[110]),
-                    ),
-                  ],
-                ),
-              ),
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ],
+      ),
+    );
+  }
 
-              const SizedBox(width: 12),
+  Widget _buildHeader(BuildContext context) {
+    final paths = widget.paths;
 
-              FilledButton(
-                onPressed: onAdd,
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(FluentIcons.add, size: 15),
-                    SizedBox(width: 7),
-                    Text('افزودن مسیر'),
-                  ],
-                ),
-              ),
-            ],
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+      child: Row(
+        children: [
+          // دکمه باز / بسته کردن
+          IconButton(
+            icon: Icon(
+              _expanded
+                  ? FluentIcons.chevron_up
+                  : FluentIcons.chevron_down,
+              size: 13,
+            ),
+            onPressed: () {
+              setState(() {
+                _expanded = !_expanded;
+              });
+            },
           ),
 
-          const SizedBox(height: 14),
+          const SizedBox(width: 2),
 
-          // ============================================================
-          // Empty state
-          // ============================================================
-          if (paths.isEmpty)
-            _EmptyState()
-          // ============================================================
-          // Paths
-          // ============================================================
-          else ...[
-            for (final path in previewPaths)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: _PathItem(path: path, onRemove: () => onRemove(path)),
-              ),
+          // آیکن پوشه
+          Container(
+            width: 36,
+            height: 36,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: Colors.blue.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(
+              FluentIcons.folder_open,
+              size: 18,
+            ),
+          ),
 
-            // ============================================================
-            // Show all button
-            // ============================================================
-            if (remainingCount > 0)
-              Padding(
-                padding: const EdgeInsets.only(top: 3),
-                child: Button(
-                  onPressed: () => _showAllPaths(context),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+          const SizedBox(width: 10),
+
+          // عنوان و خلاصه مسیر
+          Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                setState(() {
+                  _expanded = !_expanded;
+                });
+              },
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Row(
                     children: [
-                      const Icon(FluentIcons.list, size: 15),
-                      const SizedBox(width: 7),
-                      Text('نمایش همه مسیرها  •  $remainingCount مسیر دیگر'),
+                      const Text(
+                        'مسیرهای آنالیز',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      if (paths.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[30],
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            '${paths.length}',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
                     ],
                   ),
-                ),
+                  const SizedBox(height: 2),
+                  Text(
+                    paths.isEmpty
+                        ? 'مسیری برای بررسی انتخاب نشده است'
+                        : _buildPathSummary(paths),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textDirection: TextDirection.ltr,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey[110],
+                    ),
+                  ),
+                ],
               ),
+            ),
+          ),
+
+          const SizedBox(width: 10),
+
+          // افزودن مسیر
+          FilledButton(
+            onPressed: widget.onAdd,
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  FluentIcons.add,
+                  size: 14,
+                ),
+                SizedBox(width: 6),
+                Text('افزودن مسیر'),
+              ],
+            ),
+          ),
+
+          // شروع اسکن و آنالیز
+          if (widget.onScan != null) ...[
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: paths.isEmpty ? null : widget.onScan,
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    FluentIcons.search,
+                    size: 14,
+                  ),
+                  SizedBox(width: 6),
+                  Text('شروع اسکن و آنالیز'),
+                ],
+              ),
+            ),
           ],
         ],
       ),
     );
   }
 
-  // ==================================================================
-  // Show all paths dialog
-  // ==================================================================
+  String _buildPathSummary(List<String> paths) {
+    if (paths.isEmpty) {
+      return 'مسیری برای بررسی انتخاب نشده است';
+    }
+
+    if (paths.length == 1) {
+      return paths.first;
+    }
+
+    return '${paths.first}  •  و ${paths.length - 1} مسیر دیگر';
+  }
+
+  Widget _buildExpandedContent(
+    BuildContext context,
+    List<String> previewPaths,
+    int remainingCount,
+  ) {
+    final paths = widget.paths;
+
+    if (paths.isEmpty) {
+      return const _EmptyState();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final path in previewPaths)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: _PathItem(
+              path: path,
+              onRemove: () => widget.onRemove(path),
+            ),
+          ),
+
+        if (remainingCount > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 3),
+            child: Button(
+              onPressed: () => _showAllPaths(context),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    FluentIcons.list,
+                    size: 15,
+                  ),
+                  const SizedBox(width: 7),
+                  Text(
+                    'نمایش همه مسیرها  •  $remainingCount مسیر دیگر',
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 
   Future<void> _showAllPaths(BuildContext context) async {
     await showDialog<void>(
@@ -131,18 +282,24 @@ class FolderSelector extends StatelessWidget {
         return ContentDialog(
           title: Row(
             children: [
-              const Icon(FluentIcons.folder_open, size: 20),
+              const Icon(
+                FluentIcons.folder_open,
+                size: 20,
+              ),
               const SizedBox(width: 10),
               const Text('مسیرهای آنالیز'),
               const SizedBox(width: 10),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 3,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.grey[30],
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
-                  '${paths.length}',
+                  '${widget.paths.length}',
                   style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
@@ -151,7 +308,6 @@ class FolderSelector extends StatelessWidget {
               ),
             ],
           ),
-
           content: SizedBox(
             width: 650,
             height: 430,
@@ -160,28 +316,25 @@ class FolderSelector extends StatelessWidget {
               children: [
                 Text(
                   'مسیرهایی که برای آنالیز انتخاب کرده‌اید:',
-                  style: TextStyle(fontSize: 13, color: Colors.grey[110]),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey[110],
+                  ),
                 ),
-
                 const SizedBox(height: 12),
-
-                // ======================================================
-                // Scrollable paths
-                // ======================================================
                 Expanded(
                   child: ListView.separated(
-                    itemCount: paths.length,
-                    separatorBuilder: (context, index) {
-                      return const SizedBox(height: 6);
-                    },
+                    itemCount: widget.paths.length,
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: 6),
                     itemBuilder: (context, index) {
-                      final path = paths[index];
+                      final path = widget.paths[index];
 
                       return _PathItem(
                         path: path,
                         number: index + 1,
                         onRemove: () {
-                          onRemove(path);
+                          widget.onRemove(path);
                         },
                       );
                     },
@@ -190,7 +343,6 @@ class FolderSelector extends StatelessWidget {
               ],
             ),
           ),
-
           actions: [
             Button(
               onPressed: () {
@@ -198,13 +350,15 @@ class FolderSelector extends StatelessWidget {
               },
               child: const Text('بستن'),
             ),
-
             FilledButton(
-              onPressed: onAdd,
+              onPressed: widget.onAdd,
               child: const Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(FluentIcons.add, size: 15),
+                  Icon(
+                    FluentIcons.add,
+                    size: 15,
+                  ),
                   SizedBox(width: 7),
                   Text('افزودن مسیر'),
                 ],
@@ -217,30 +371,38 @@ class FolderSelector extends StatelessWidget {
   }
 }
 
-// ======================================================================
-// Empty State
-// ======================================================================
-
 class _EmptyState extends StatelessWidget {
+  const _EmptyState();
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 14,
+        vertical: 16,
+      ),
       decoration: BoxDecoration(
         color: Colors.grey[10],
-        border: Border.all(color: Colors.grey[50]),
+        border: Border.all(
+          color: Colors.grey[50],
+        ),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         children: [
-          Icon(FluentIcons.folder_open, size: 18, color: Colors.grey[100]),
-
+          Icon(
+            FluentIcons.folder_open,
+            size: 18,
+            color: Colors.grey[100],
+          ),
           const SizedBox(width: 10),
-
           Expanded(
             child: Text(
               'برای شروع، حداقل یک پوشه برای آنالیز اضافه کنید.',
-              style: TextStyle(fontSize: 12, color: Colors.grey[110]),
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[110],
+              ),
             ),
           ),
         ],
@@ -249,32 +411,34 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-// ======================================================================
-// Path Item
-// ======================================================================
-
 class _PathItem extends StatelessWidget {
   final String path;
   final VoidCallback onRemove;
   final int? number;
 
-  const _PathItem({required this.path, required this.onRemove, this.number});
+  const _PathItem({
+    required this.path,
+    required this.onRemove,
+    this.number,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       height: 44,
-      padding: const EdgeInsets.only(left: 6, right: 10),
+      padding: const EdgeInsets.only(
+        left: 6,
+        right: 10,
+      ),
       decoration: BoxDecoration(
         color: Colors.grey[20],
-        border: Border.all(color: Colors.grey[50]),
+        border: Border.all(
+          color: Colors.grey[50],
+        ),
         borderRadius: BorderRadius.circular(7),
       ),
       child: Row(
         children: [
-          // ============================================================
-          // Number
-          // ============================================================
           if (number != null) ...[
             Container(
               width: 26,
@@ -292,13 +456,9 @@ class _PathItem extends StatelessWidget {
                 ),
               ),
             ),
-
             const SizedBox(width: 8),
           ],
 
-          // ============================================================
-          // Folder icon
-          // ============================================================
           Container(
             width: 30,
             height: 30,
@@ -307,14 +467,14 @@ class _PathItem extends StatelessWidget {
               color: Colors.blue.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(6),
             ),
-            child: const Icon(FluentIcons.folder, size: 16),
+            child: const Icon(
+              FluentIcons.folder,
+              size: 16,
+            ),
           ),
 
           const SizedBox(width: 9),
 
-          // ============================================================
-          // Path
-          // ============================================================
           Expanded(
             child: Tooltip(
               message: path,
@@ -323,18 +483,20 @@ class _PathItem extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 textDirection: TextDirection.ltr,
-                style: const TextStyle(fontSize: 12),
+                style: const TextStyle(
+                  fontSize: 12,
+                ),
               ),
             ),
           ),
 
           const SizedBox(width: 5),
 
-          // ============================================================
-          // Remove
-          // ============================================================
           IconButton(
-            icon: const Icon(FluentIcons.chrome_close, size: 13),
+            icon: const Icon(
+              FluentIcons.chrome_close,
+              size: 13,
+            ),
             onPressed: onRemove,
           ),
         ],
