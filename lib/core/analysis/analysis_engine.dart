@@ -3,6 +3,7 @@ import '../../ui/models/media_item.dart';
 import '../../ui/models/timeline_group.dart';
 
 import '../duplicate_detector.dart';
+import '../temporal_burst_detector.dart';
 import '../timeline_builder.dart';
 
 import 'analysis_callback.dart';
@@ -18,23 +19,36 @@ import 'best_photo_selector.dart';
 
 class AnalysisEngine {
   final AnalysisController controller;
+
   final BlurDetector blurDetector;
+
   final QualityScorer qualityScorer;
+
   final BestPhotoSelector bestPhotoSelector;
 
   final TimelineBuilder timelineBuilder;
 
+  /// الگوریتم قدیمی و دقیق pHash.
+  ///
+  /// این الگوریتم فقط در تحلیل دستی گروه استفاده می‌شود.
   final DuplicateDetector duplicateDetector;
+
+  /// الگوریتم سریع تشخیص عکس‌های پشت‌سرهم.
+  ///
+  /// این الگوریتم در آنالیز اولیه اجرا می‌شود.
+  final TemporalBurstDetector temporalBurstDetector;
 
   AnalysisEngine({
     required this.controller,
     TimelineBuilder? timelineBuilder,
     DuplicateDetector? duplicateDetector,
+    TemporalBurstDetector? temporalBurstDetector,
     required this.blurDetector,
     required this.qualityScorer,
     required this.bestPhotoSelector,
   }) : timelineBuilder = timelineBuilder ?? TimelineBuilder(),
-       duplicateDetector = duplicateDetector ?? DuplicateDetector();
+       duplicateDetector = duplicateDetector ?? DuplicateDetector(),
+       temporalBurstDetector = temporalBurstDetector ?? TemporalBurstDetector();
 
   List<TimelineGroup> timelineGroups = [];
 
@@ -101,6 +115,10 @@ class AnalysisEngine {
     mediaItems.clear();
   }
 
+  // ===========================================================================
+  // FACE DETECTION
+  // ===========================================================================
+
   Future<void> _detectFaces(AnalysisCallback? callback) async {
     int current = 0;
 
@@ -127,6 +145,10 @@ class AnalysisEngine {
     }
   }
 
+  // ===========================================================================
+  // TIMELINE
+  // ===========================================================================
+
   Future<void> _buildTimeline(AnalysisCallback? callback) async {
     timelineGroups = timelineBuilder.build(
       mediaItems,
@@ -142,32 +164,36 @@ class AnalysisEngine {
     );
   }
 
-  Future<void> _findDuplicates(
+  // ===========================================================================
+  // FAST BURST DETECTION
+  // ===========================================================================
+
+  /// تشخیص سریع عکس‌های پشت‌سرهم.
+  ///
+  /// این مرحله جایگزین pHash در آنالیز اولیه شده است.
+  ///
+  /// نکته مهم:
+  /// هیچ تصویر خوانده نمی‌شود و هیچ pHash محاسبه نمی‌شود.
+  /// فقط createdAt بررسی می‌شود.
+  Future<void> _findTemporalBursts(
     AnalysisCallback? callback, {
     void Function(TimelineGroup group, List<DuplicateGroup> duplicates)?
-        onGroupDuplicates,
+    onGroupDuplicates,
   }) async {
-    // duplicateGroups = await duplicateDetector.findDuplicates(
-    //   mediaItems,
-    //   controller: controller,
-    //   onProgress: (current, total, status) {
-    //     _updateProgress(
-    //       AnalysisStage.duplicate,
-    //       current,
-    //       total,
-    //       status,
-    //       callback,
-    //     );
-    //   },
-    // );
-
     duplicateGroups.clear();
 
     for (int i = 0; i < timelineGroups.length; i++) {
+      if (!await controller.checkpoint()) {
+        return;
+      }
+
       final group = timelineGroups[i];
-      final result = await duplicateDetector.findDuplicates(
+
+      final result = await temporalBurstDetector.findBursts(
         group.items,
         controller: controller,
+        maxGap: TemporalBurstDetector.defaultMaxGap,
+        minGroupSize: TemporalBurstDetector.defaultMinGroupSize,
         onProgress: (current, total, status) {
           _updateProgress(
             AnalysisStage.duplicate,
@@ -177,8 +203,6 @@ class AnalysisEngine {
             callback,
           );
         },
-        groupIndex: i + 1,
-        totalGroups: timelineGroups.length,
       );
 
       if (controller.isCancelled) {
@@ -187,14 +211,26 @@ class AnalysisEngine {
 
       duplicateGroups.addAll(result);
 
-      // نتیجه هر گروه بلافاصله بعد از اتمام همان گروه منتشر می‌شود؛
-      // بنابراین UI لازم نیست تا پایان تحلیل تمام پوشه‌ها صبر کند.
+      // نتیجه همان گروه بلافاصله به UI ارسال می‌شود.
       onGroupDuplicates?.call(group, List<DuplicateGroup>.from(result));
     }
+
+    _updateProgress(
+      AnalysisStage.duplicate,
+      mediaItems.length,
+      mediaItems.length,
+      'تشخیص عکس‌های پشت‌سرهم پایان یافت',
+      callback,
+    );
   }
 
-  /// فقط تصاویر تکراری یک گروه زمانی را تحلیل می‌کند.
-  /// برای تحلیل دستی از منوی کلیک راست هر گروه استفاده می‌شود.
+  // ===========================================================================
+  // MANUAL pHASH
+  // ===========================================================================
+
+  /// تحلیل دقیق تصاویر یک TimelineGroup با pHash.
+  ///
+  /// این متد فقط از طریق منوی کلیک راست گروه فراخوانی می‌شود.
   Future<List<DuplicateGroup>> analyzeGroupDuplicates(
     TimelineGroup group, {
     void Function(AnalysisProgress? progress)? onProgress,
@@ -226,22 +262,29 @@ class AnalysisEngine {
 
       if (!controller.isCancelled) {
         bestPhotoSelector.sortDuplicates(result);
+
         bestPhotoSelector.selectDuplicateMasters(result);
       }
 
       return result;
     } finally {
       _running = false;
+
       progress = null;
+
       onProgress?.call(null);
     }
   }
+
+  // ===========================================================================
+  // MAIN ANALYSIS
+  // ===========================================================================
 
   Future<AnalysisResult> run(
     List<MediaItem> items, {
     AnalysisCallback? onProgress,
     void Function(TimelineGroup group, List<DuplicateGroup> duplicates)?
-        onGroupDuplicates,
+    onGroupDuplicates,
   }) async {
     if (_running) {
       throw Exception('Analysis already running.');
@@ -255,7 +298,12 @@ class AnalysisEngine {
       mediaItems = List<MediaItem>.from(items);
 
       timelineGroups.clear();
+
       duplicateGroups.clear();
+
+      // -----------------------------------------------------------------------
+      // TIMELINE
+      // -----------------------------------------------------------------------
 
       _updateProgress(
         AnalysisStage.timeline,
@@ -275,21 +323,55 @@ class AnalysisEngine {
         );
       }
 
+      // -----------------------------------------------------------------------
+      // TEMPORAL BURST DETECTION
+      // -----------------------------------------------------------------------
+      //
+      // مهم:
+      // اینجا دیگر DuplicateDetector و pHash اجرا نمی‌شوند.
+      //
+      // به جای آن فقط زمان عکس‌ها بررسی می‌شود.
+      //
+
       _updateProgress(
         AnalysisStage.duplicate,
         0,
         mediaItems.length,
-        'در حال پیدا کردن تصاویر تکراری...',
+        'در حال تشخیص عکس‌های پشت‌سرهم...',
         onProgress,
       );
 
-      await _findDuplicates(
+      await _findTemporalBursts(
         onProgress,
         onGroupDuplicates: onGroupDuplicates,
       );
-      // await _detectBlur(onProgress);
-      // await _detectFaces(onProgress);
+
+      if (controller.isCancelled) {
+        return AnalysisResult(
+          cancelled: true,
+          timelineGroups: timelineGroups,
+          duplicateGroups: duplicateGroups,
+        );
+      }
+
+      // -----------------------------------------------------------------------
+      // QUALITY
+      // -----------------------------------------------------------------------
+
       await _scorePhotos(onProgress);
+
+      if (controller.isCancelled) {
+        return AnalysisResult(
+          cancelled: true,
+          timelineGroups: timelineGroups,
+          duplicateGroups: duplicateGroups,
+        );
+      }
+
+      // -----------------------------------------------------------------------
+      // BEST PHOTO
+      // -----------------------------------------------------------------------
+
       await _selectBestPhotos(onProgress);
 
       if (controller.isCancelled) {
@@ -300,6 +382,10 @@ class AnalysisEngine {
         );
       }
 
+      // -----------------------------------------------------------------------
+      // FINISHED
+      // -----------------------------------------------------------------------
+
       _updateProgress(
         AnalysisStage.finished,
         mediaItems.length,
@@ -309,9 +395,8 @@ class AnalysisEngine {
       );
 
       progress = null;
-      onProgress?.call(null);
 
-      // faceDetector.dispose();
+      onProgress?.call(null);
 
       return AnalysisResult(
         cancelled: false,
@@ -322,6 +407,10 @@ class AnalysisEngine {
       _running = false;
     }
   }
+
+  // ===========================================================================
+  // BLUR
+  // ===========================================================================
 
   Future<void> _detectBlur(AnalysisCallback? callback) async {
     int current = 0;
@@ -349,6 +438,10 @@ class AnalysisEngine {
     }
   }
 
+  // ===========================================================================
+  // QUALITY
+  // ===========================================================================
+
   Future<void> _scorePhotos(AnalysisCallback? callback) async {
     int current = 0;
 
@@ -375,35 +468,33 @@ class AnalysisEngine {
     }
   }
 
+  // ===========================================================================
+  // BEST PHOTO
+  // ===========================================================================
+
   Future<void> _selectBestPhotos(AnalysisCallback? callback) async {
     _updateProgress(
       AnalysisStage.bestPhoto,
-
       0,
-
       duplicateGroups.length,
-
       "در حال انتخاب بهترین تصاویر...",
-
       callback,
     );
 
     bestPhotoSelector.sortDuplicates(duplicateGroups);
 
     bestPhotoSelector.selectDuplicateMasters(duplicateGroups);
+
     bestPhotoSelector.selectTimelinePhotos(mediaItems);
 
     _updateProgress(
       AnalysisStage.bestPhoto,
-
       duplicateGroups.length,
-
       duplicateGroups.length,
-
       "بهترین تصاویر انتخاب شدند.",
-
       callback,
     );
+
     progress = null;
   }
 }

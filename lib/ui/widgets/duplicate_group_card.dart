@@ -21,7 +21,7 @@ class DuplicateGroupCard extends StatelessWidget {
             child: Row(
               children: [
                 const Text(
-                  'تصاویر تکراری',
+                  'عکس‌های پشت‌سرهم',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(width: 8),
