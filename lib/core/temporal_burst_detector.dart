@@ -22,7 +22,7 @@ class TemporalBurstDetector {
   static const Duration defaultMaxGap = Duration(seconds: 10);
 
   /// حداقل تعداد عکس برای تشکیل گروه.
-  static const int defaultMinGroupSize = 3;
+  static const int defaultMinGroupSize = 2;
 
   /// تشخیص گروه‌های عکس پشت‌سرهم.
   Future<List<DuplicateGroup>> findBursts(
@@ -36,9 +36,7 @@ class TemporalBurstDetector {
       return [];
     }
 
-    final photos = items
-        .where((item) => !item.isVideo)
-        .toList(growable: false);
+    final photos = items.where((item) => !item.isVideo).toList(growable: false);
 
     if (photos.length < minGroupSize) {
       onProgress?.call(
@@ -82,11 +80,7 @@ class TemporalBurstDetector {
         currentGroup.add(current);
       } else {
         // burst قبلی تمام شده است.
-        _addGroupIfValid(
-          groups,
-          currentGroup,
-          minGroupSize,
-        );
+        _addGroupIfValid(groups, currentGroup, minGroupSize);
 
         // شروع burst جدید.
         currentGroup = <MediaItem>[current];
@@ -94,16 +88,10 @@ class TemporalBurstDetector {
     }
 
     // آخرین گروه.
-    _addGroupIfValid(
-      groups,
-      currentGroup,
-      minGroupSize,
-    );
+    _addGroupIfValid(groups, currentGroup, minGroupSize);
 
     // گروه‌های بزرگ‌تر اول نمایش داده شوند.
-    groups.sort(
-      (a, b) => b.items.length.compareTo(a.items.length),
-    );
+    groups.sort((a, b) => b.items.length.compareTo(a.items.length));
 
     onProgress?.call(
       sorted.length,
@@ -126,11 +114,6 @@ class TemporalBurstDetector {
     final groupItems = List<MediaItem>.from(items)
       ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
-    groups.add(
-      DuplicateGroup(
-        items: groupItems,
-        selectedIndex: 0,
-      ),
-    );
+    groups.add(DuplicateGroup(items: groupItems, selectedIndex: 0));
   }
 }
