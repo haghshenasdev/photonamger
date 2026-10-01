@@ -467,6 +467,7 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
                               faces: _showFaceBoxes ? item.faces : const [],
                               onFaceSelected: widget.onFaceSelected,
                               faceNameResolver: widget.faceNameResolver,
+                              selectedPersonId: widget.selectedPersonId,
                             ),
                           ),
                         ),
