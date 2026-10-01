@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../../ui/models/duplicate_group.dart';
 import '../../ui/models/media_item.dart';
 import '../../ui/models/timeline_group.dart';
@@ -13,6 +15,9 @@ import 'analysis_result.dart';
 import 'analysis_stage.dart';
 import 'analysis_status.dart';
 import 'blur_detector.dart';
+import 'face_database.dart';
+import 'face_info.dart';
+import 'face_recognition_engine.dart';
 
 import 'quality_scorer.dart';
 import 'best_photo_selector.dart';
@@ -25,6 +30,10 @@ class AnalysisEngine {
   final QualityScorer qualityScorer;
 
   final BestPhotoSelector bestPhotoSelector;
+
+  final FaceRecognitionEngine faceRecognitionEngine;
+
+  final FaceDatabaseService faceDatabaseService;
 
   final TimelineBuilder timelineBuilder;
 
@@ -46,7 +55,13 @@ class AnalysisEngine {
     required this.blurDetector,
     required this.qualityScorer,
     required this.bestPhotoSelector,
-  }) : timelineBuilder = timelineBuilder ?? TimelineBuilder(),
+    FaceRecognitionEngine? faceRecognitionEngine,
+    FaceDatabaseService? faceDatabaseService,
+  })  : faceRecognitionEngine =
+            faceRecognitionEngine ?? FaceRecognitionEngine(),
+        faceDatabaseService =
+            faceDatabaseService ?? const FaceDatabaseService(),
+       timelineBuilder = timelineBuilder ?? TimelineBuilder(),
        duplicateDetector = duplicateDetector ?? DuplicateDetector(),
        temporalBurstDetector = temporalBurstDetector ?? TemporalBurstDetector();
 
@@ -116,32 +131,91 @@ class AnalysisEngine {
   }
 
   // ===========================================================================
-  // FACE DETECTION
+  // FACE DETECTION + RECOGNITION
   // ===========================================================================
 
-  Future<void> _detectFaces(AnalysisCallback? callback) async {
-    int current = 0;
+  /// Detects only files that are missing from the portable face cache.
+  ///
+  /// The expensive model work is therefore not repeated when the user merely
+  /// reopens a project or scans the same folder again.
+  Future<void> detectFaces({
+    required List<String> sourceRoots,
+    required String databaseDirectory,
+    AnalysisCallback? callback,
+    bool forceRescan = false,
+  }) async {
+    if (mediaItems.isEmpty) return;
 
-    for (final item in mediaItems) {
-      if (!await controller.checkpoint()) {
-        return;
-      }
+    final ownsRunLock = !_running;
+    if (ownsRunLock) _running = true;
 
-      current++;
+    try {
+      final pending = await faceDatabaseService.applyCachedFaces(
+        databaseDirectory: databaseDirectory,
+        sourceRoots: sourceRoots,
+        items: mediaItems,
+        forceRescan: forceRescan,
+      );
+
+    if (pending.isEmpty) {
+      _updateProgress(
+        AnalysisStage.faces,
+        mediaItems.length,
+        mediaItems.length,
+        'اطلاعات چهره از حافظه محلی بارگذاری شد.',
+        callback,
+      );
+      return;
+    }
+
+    // Fail before writing any scan records if the recognition model is not
+    // installed. This keeps the cache retryable after the user adds the model.
+    await faceRecognitionEngine.initialize();
+
+    final analyzed = <MediaItem, List<FaceInfo>>{};
+
+    for (var index = 0; index < pending.length; index++) {
+      if (!await controller.checkpoint()) return;
+
+      final item = pending[index];
 
       _updateProgress(
         AnalysisStage.faces,
-        current,
-        mediaItems.length,
-        "در حال تشخیص چهره...",
+        index + 1,
+        pending.length,
+        'در حال تشخیص چهره ${index + 1} از ${pending.length}...',
         callback,
       );
 
-      if (item.isVideo) {
-        continue;
+      try {
+        final faces = await faceRecognitionEngine.analyzeFile(item.path);
+        analyzed[item] = faces;
+      } catch (e, stackTrace) {
+        // A corrupt/unsupported image must not abort the entire analysis.
+        item.analysisMessage = 'خطا در تشخیص چهره: $e';
+        analyzed[item] = const [];
+        debugPrint('Face analysis failed: ${item.path} -> $e');
+        debugPrintStack(stackTrace: stackTrace);
       }
+    }
 
-      // item.faces = await faceDetector.detect(item);
+    if (controller.isCancelled) return;
+
+    await faceDatabaseService.mergeAnalysis(
+      databaseDirectory: databaseDirectory,
+      sourceRoots: sourceRoots,
+      analyzed: analyzed,
+    );
+
+      _updateProgress(
+        AnalysisStage.faces,
+        pending.length,
+        pending.length,
+        'تشخیص و دسته‌بندی چهره‌ها پایان یافت.',
+        callback,
+      );
+    } finally {
+      if (ownsRunLock) _running = false;
     }
   }
 
@@ -285,6 +359,8 @@ class AnalysisEngine {
     AnalysisCallback? onProgress,
     void Function(TimelineGroup group, List<DuplicateGroup> duplicates)?
     onGroupDuplicates,
+    List<String>? sourceRootsForFaces,
+    String? faceDatabaseDirectory,
   }) async {
     if (_running) {
       throw Exception('Analysis already running.');
@@ -321,6 +397,26 @@ class AnalysisEngine {
           timelineGroups: timelineGroups,
           duplicateGroups: duplicateGroups,
         );
+      }
+
+      // -----------------------------------------------------------------------
+      // FACE DETECTION / RECOGNITION
+      // -----------------------------------------------------------------------
+
+      if (sourceRootsForFaces != null && faceDatabaseDirectory != null) {
+        await detectFaces(
+          sourceRoots: sourceRootsForFaces!,
+          databaseDirectory: faceDatabaseDirectory!,
+          callback: onProgress,
+        );
+
+        if (controller.isCancelled) {
+          return AnalysisResult(
+            cancelled: true,
+            timelineGroups: timelineGroups,
+            duplicateGroups: duplicateGroups,
+          );
+        }
       }
 
       // -----------------------------------------------------------------------

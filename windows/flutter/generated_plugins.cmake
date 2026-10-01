@@ -3,6 +3,7 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  flutter_onnxruntime
   flutter_video_thumbnail_plus
   fvp
   url_launcher_windows

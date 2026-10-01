@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:fluent_ui/fluent_ui.dart';
+
 import 'package:fgphoto/core/analysis/analysis_progress.dart';
 import 'package:fgphoto/core/analysis/analysis_stage.dart';
 import 'package:fgphoto/core/folder_service.dart';
@@ -16,7 +18,6 @@ import 'package:fgphoto/ui/models/preview_item.dart';
 import 'package:fgphoto/ui/models/timeline_group.dart';
 import 'package:fgphoto/ui/widgets/app_menu.dart';
 import 'package:fgphoto/ui/widgets/image_preview_dialog.dart';
-import 'package:fluent_ui/fluent_ui.dart';
 import 'package:fgphoto/core/apply/transfer_service.dart';
 import 'package:fgphoto/core/project/photon_project.dart';
 import 'package:fgphoto/core/project/project_file_service.dart';
@@ -28,6 +29,7 @@ import '../widgets/timeline_group_card.dart';
 import '../widgets/media_grid.dart';
 import '../widgets/duplicate_group_card.dart';
 import '../widgets/apply_bar.dart';
+import '../widgets/face_people_panel.dart';
 
 import 'package:fgphoto/core/analysis/analysis_engine.dart';
 import 'package:fgphoto/core/analysis/blur_detector.dart';
@@ -35,6 +37,7 @@ import 'package:fgphoto/core/analysis/best_photo_selector.dart';
 import 'package:fgphoto/core/analysis/quality_scorer.dart';
 
 import 'package:fgphoto/core/analysis/analysis_controller.dart';
+import 'package:fgphoto/core/analysis/face_database.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -54,6 +57,11 @@ class _HomePageState extends State<HomePage> {
   TimelineGroup? selectedGroup;
 
   List<DuplicateGroup> duplicateGroups = [];
+
+  FaceDatabase _faceDatabase = FaceDatabase();
+  String? _faceDatabaseDirectory;
+  String? _selectedFacePersonId;
+  int _rightPanelTab = 0;
 
   AnalysisProgress? progress;
 
@@ -82,7 +90,96 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     _saveTimer?.cancel();
+    unawaited(engine.faceRecognitionEngine.dispose());
     super.dispose();
+  }
+
+  String _getFaceDatabaseDirectory() {
+    // Keep the face database next to the source collection. This makes it
+    // travel with the photos instead of depending on AppData or the machine.
+    if (sourcePaths.isNotEmpty) {
+      return sourcePaths.first;
+    }
+
+    if (_projectPath != null && _projectPath!.trim().isNotEmpty) {
+      return File(_projectPath!).parent.path;
+    }
+
+    return Directory.current.path;
+  }
+
+  Future<void> _loadFaceDatabase() async {
+    final directory = _getFaceDatabaseDirectory();
+    final db = await const FaceDatabaseService().load(directory);
+
+    if (!mounted) return;
+
+    setState(() {
+      _faceDatabaseDirectory = directory;
+      _faceDatabase = db;
+    });
+  }
+
+  Future<void> _renameFacePerson(String personId, String name) async {
+    final directory = _faceDatabaseDirectory ?? _getFaceDatabaseDirectory();
+
+    await const FaceDatabaseService().renamePerson(
+      databaseDirectory: directory,
+      personId: personId,
+      name: name,
+    );
+
+    await _loadFaceDatabase();
+  }
+
+  Future<void> _mergeFacePersons(
+    String primaryPersonId,
+    String secondaryPersonId,
+  ) async {
+    final directory =
+        _faceDatabaseDirectory ?? _getFaceDatabaseDirectory();
+
+    await const FaceDatabaseService().mergePersons(
+      databaseDirectory: directory,
+      primaryPersonId: primaryPersonId,
+      secondaryPersonId: secondaryPersonId,
+    );
+
+    if (!mounted) return;
+
+    await _loadFaceDatabase();
+
+    setState(() {
+      if (_selectedFacePersonId == secondaryPersonId) {
+        _selectedFacePersonId = primaryPersonId;
+      }
+    });
+
+    await _enqueueProjectSave();
+  }
+
+  List<GridItem> _buildFaceGridItems() {
+    final personId = _selectedFacePersonId;
+    if (personId == null) return [];
+
+    final result = <GridItem>[];
+
+    for (final item in mediaItems) {
+      if (item.faces.any((face) => face.personId == personId)) {
+        result.add(GridItem.media(item));
+      }
+    }
+
+    return result;
+  }
+
+  void _selectFacePerson(String? personId) {
+    setState(() {
+      _selectedFacePersonId = personId;
+      if (personId != null) {
+        _rightPanelTab = 1;
+      }
+    });
   }
 
   @override
@@ -150,7 +247,9 @@ class _HomePageState extends State<HomePage> {
                   Expanded(
                     flex: 2,
                     child: MediaGrid(
-                      items: buildGridItems(),
+                      items: _selectedFacePersonId != null
+                          ? _buildFaceGridItems()
+                          : buildGridItems(),
                       onChanged: () {
                         setState(() {});
                         _scheduleProjectSave();
@@ -162,9 +261,36 @@ class _HomePageState extends State<HomePage> {
 
                   SizedBox(
                     width: 350,
-                    child: DuplicateGroupCard(
-                      groups: duplicateGroups,
-                      onGroupTap: _openDuplicateGroup,
+                    child: TabView(
+                      currentIndex: _rightPanelTab,
+                      onChanged: (index) {
+                        setState(() => _rightPanelTab = index);
+                      },
+                      closeButtonVisibility:
+                          CloseButtonVisibilityMode.never,
+                      showScrollButtons: false,
+                      tabs: [
+                        Tab(
+                          icon: const Icon(FluentIcons.copy, size: 14),
+                          text: const Text('پشت‌سرهم'),
+                          body: DuplicateGroupCard(
+                            groups: duplicateGroups,
+                            onGroupTap: _openDuplicateGroup,
+                          ),
+                        ),
+                        Tab(
+                          icon: const Icon(FluentIcons.contact, size: 14),
+                          text: const Text('افراد'),
+                          body: FacePeoplePanel(
+                            database: _faceDatabase,
+                            sourceRoots: sourcePaths,
+                            selectedPersonId: _selectedFacePersonId,
+                            onPersonSelected: _selectFacePerson,
+                            onRename: _renameFacePerson,
+                            onMerge: _mergeFacePersons,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -298,6 +424,22 @@ class _HomePageState extends State<HomePage> {
                     onCancel: cancelAnalyze,
                   ),
                 ),
+
+                Button(
+                  onPressed:
+                      mediaItems.isEmpty || engine.isRunning
+                          ? null
+                          : _analyzeFacesOnly,
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(FluentIcons.contact, size: 16),
+                      SizedBox(width: 8),
+                      Text('تشخیص چهره'),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
 
                 Button(
                   onPressed: groups.any((group) => group.edited)
@@ -657,7 +799,11 @@ class _HomePageState extends State<HomePage> {
       duplicateGroups = [];
 
       selectedGroup = generatedGroups.isNotEmpty ? generatedGroups.first : null;
+      _selectedFacePersonId = null;
     });
+
+    _faceDatabaseDirectory = _getFaceDatabaseDirectory();
+    await _loadFaceDatabase();
 
     final project = _ensureProject();
     project.sourcePaths = List<String>.from(sourcePaths);
@@ -782,6 +928,72 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _analyzeFacesOnly() async {
+    if (mediaItems.isEmpty || engine.isRunning) return;
+
+    setState(() {
+      progress = const AnalysisProgress(
+        stage: AnalysisStage.faces,
+        current: 0,
+        total: 0,
+        message: 'در حال آماده‌سازی تشخیص چهره...',
+      );
+    });
+
+    try {
+      await engine.detectFaces(
+        sourceRoots: sourcePaths,
+        databaseDirectory: _getFaceDatabaseDirectory(),
+        forceRescan: true,
+        callback: (p) {
+          if (!mounted) return;
+          setState(() => progress = p);
+        },
+      );
+
+      await _loadFaceDatabase();
+      await _enqueueProjectSave();
+
+      if (!mounted) return;
+
+      setState(() => progress = null);
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) {
+          return InfoBar(
+            title: const Text('تشخیص چهره انجام شد'),
+            content: Text(
+              '${_faceDatabase.persons.length} نفر و '
+              '${_faceDatabase.faces.length} چهره در حافظه محلی ثبت شده است.',
+            ),
+            severity: InfoBarSeverity.success,
+            onClose: close,
+          );
+        },
+      );
+    } catch (e, stackTrace) {
+      debugPrint('Face analysis error: $e');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+
+      setState(() => progress = null);
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) {
+          return InfoBar(
+            title: const Text('خطا در تشخیص چهره'),
+            content: Text(e.toString()),
+            severity: InfoBarSeverity.error,
+            onClose: close,
+          );
+        },
+      );
+    }
+  }
+
   Future<void> analyze() async {
     final oldGroups = groups;
 
@@ -806,6 +1018,8 @@ class _HomePageState extends State<HomePage> {
     try {
       final result = await engine.run(
         mediaItems,
+        sourceRootsForFaces: sourcePaths,
+        faceDatabaseDirectory: _getFaceDatabaseDirectory(),
         onGroupDuplicates: (group, duplicates) {
           if (!mounted) return;
 
@@ -883,6 +1097,8 @@ class _HomePageState extends State<HomePage> {
         progress = null;
       });
 
+      await _loadFaceDatabase();
+
       final project = _ensureProject();
 
       project.sourcePaths = List<String>.from(sourcePaths);
@@ -892,6 +1108,23 @@ class _HomePageState extends State<HomePage> {
       project.analysisCompleted = true;
 
       await _enqueueProjectSave();
+    } catch (e, stackTrace) {
+      debugPrint('Analysis error: $e');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (mounted) {
+        await displayInfoBar(
+          context,
+          builder: (context, close) {
+            return InfoBar(
+              title: const Text('خطا در تحلیل تصاویر'),
+              content: Text(e.toString()),
+              severity: InfoBarSeverity.error,
+              onClose: close,
+            );
+          },
+        );
+      }
     } finally {
       // چه آنالیز کامل شود، چه لغو شود، چه خطایی رخ دهد،
       // پروگرس‌بار در نهایت باید حذف شود.
@@ -1210,6 +1443,7 @@ class _HomePageState extends State<HomePage> {
       groups = [];
       duplicateGroups = [];
       selectedGroup = null;
+      _selectedFacePersonId = null;
       progress = null;
 
       _project = PhotonProject.empty('پروژه جدید');
@@ -1259,6 +1493,7 @@ class _HomePageState extends State<HomePage> {
       });
 
       await ProjectRepository.rememberProjectPath(path);
+      await _loadFaceDatabase();
 
       if (showRecoveryPrompt) {
         await _offerPendingOperations();

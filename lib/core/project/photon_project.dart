@@ -243,6 +243,13 @@ class PhotonProject {
           'faceArea': face.faceArea,
           'headEulerY': face.headEulerY,
           'headEulerZ': face.headEulerZ,
+          'left': face.left,
+          'top': face.top,
+          'width': face.width,
+          'height': face.height,
+          'landmarks': face.landmarks,
+          'confidence': face.confidence,
+          'personId': face.personId,
         },
       ).toList(),
       'score': item.score == null
@@ -276,6 +283,17 @@ class PhotonProject {
             faceArea: _double(f['faceArea']),
             headEulerY: _double(f['headEulerY']),
             headEulerZ: _double(f['headEulerZ']),
+            left: _double(f['left']),
+            top: _double(f['top']),
+            width: _double(f['width']),
+            height: _double(f['height']),
+            landmarks: f['landmarks'] is List
+                ? (f['landmarks'] as List)
+                    .map((e) => _double(e))
+                    .toList()
+                : const <double>[],
+            confidence: _double(f['confidence']),
+            personId: f['personId']?.toString(),
           ),
         );
       }
