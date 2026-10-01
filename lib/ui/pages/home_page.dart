@@ -31,6 +31,7 @@ import '../widgets/media_grid.dart';
 import '../widgets/duplicate_group_card.dart';
 import '../widgets/apply_bar.dart';
 import '../widgets/face_people_panel.dart';
+import '../widgets/category_suggestion_dialog.dart';
 
 import 'package:fgphoto/core/analysis/analysis_engine.dart';
 import 'package:fgphoto/core/analysis/blur_detector.dart';
@@ -39,6 +40,7 @@ import 'package:fgphoto/core/analysis/quality_scorer.dart';
 
 import 'package:fgphoto/core/analysis/analysis_controller.dart';
 import 'package:fgphoto/core/analysis/face_database.dart';
+import 'package:fgphoto/core/metadata/category_learning_service.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -64,6 +66,9 @@ class _HomePageState extends State<HomePage> {
   String? _selectedFacePersonId;
   int _rightPanelTab = 0;
   List<FaceMergeSuggestion> _faceMergeSuggestions = const [];
+
+  CategoryLearningModel _categoryLearningModel =
+      const CategoryLearningModel();
 
   AnalysisProgress? progress;
 
@@ -147,6 +152,106 @@ class _HomePageState extends State<HomePage> {
       _faceDatabase = db;
       _faceMergeSuggestions = suggestions;
     });
+  }
+
+  Future<void> _loadCategoryLearningModel() async {
+    final directory = _projectPath != null &&
+            _projectPath!.trim().isNotEmpty
+        ? File(_projectPath!).parent.path
+        : (sourcePaths.isNotEmpty
+            ? sourcePaths.first
+            : Directory.current.path);
+
+    const service = CategoryLearningService();
+    var model = await service.load(directory);
+
+    // مدل از گروه‌های فعلی بازسازی می‌شود تا دسته‌بندی‌های دستی جدید
+    // بلافاصله برای پوشه‌های قدیمی و اسکن‌های بعدی قابل استفاده باشند.
+    if (groups.isNotEmpty) {
+      model = service.rebuild(groups);
+      await service.save(directory, model);
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      _categoryLearningModel = model;
+    });
+  }
+
+  Future<void> _suggestCategoriesFromTitles() async {
+    if (groups.isEmpty) return;
+
+    final directory = _projectPath != null &&
+            _projectPath!.trim().isNotEmpty
+        ? File(_projectPath!).parent.path
+        : (sourcePaths.isNotEmpty
+            ? sourcePaths.first
+            : Directory.current.path);
+
+    const service = CategoryLearningService();
+
+    // همیشه قبل از پیشنهاد، آخرین دسته‌بندی‌های دستی پروژه را وارد مدل می‌کنیم.
+    final model = service.rebuild(groups);
+
+    if (model.rules.isEmpty) {
+      if (!mounted) return;
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          title: const Text('مدل دسته‌بندی هنوز آموزشی ندارد'),
+          content: const Text(
+            'ابتدا چند گروه را به‌صورت دستی دسته‌بندی کنید تا آرشینو '
+            'از عنوان و دسته‌بندی‌های واقعی پروژه الگو یاد بگیرد.',
+          ),
+          severity: InfoBarSeverity.info,
+          onClose: close,
+        ),
+      );
+      return;
+    }
+
+    await service.save(directory, model);
+
+    if (!mounted) return;
+
+    final applied = await showDialog<int>(
+      context: context,
+      builder: (_) => CategorySuggestionDialog(
+        groups: groups,
+        model: model,
+        service: service,
+      ),
+    );
+
+    if (applied == null || !mounted) return;
+
+    setState(() {
+      _categoryLearningModel = service.rebuild(groups);
+    });
+
+    await service.save(directory, _categoryLearningModel);
+
+    if (applied > 0) {
+      _scheduleProjectSave();
+    }
+
+    await displayInfoBar(
+      context,
+      builder: (context, close) => InfoBar(
+        title: const Text('پیشنهاد دسته‌بندی'),
+        content: Text(
+          applied == 0
+              ? 'هیچ دسته‌بندی‌ای اعمال نشد.'
+              : '$applied گروه دسته‌بندی شد.',
+        ),
+        severity: applied == 0
+            ? InfoBarSeverity.info
+            : InfoBarSeverity.success,
+        onClose: close,
+      ),
+    );
   }
 
   Future<void> _renameFacePerson(String personId, String name) async {
@@ -380,6 +485,7 @@ class _HomePageState extends State<HomePage> {
                       onGroupsMerged: (selectedGroups) {
                         mergeGroups(selectedGroups);
                       },
+                      onSuggestCategories: _suggestCategoriesFromTitles,
                     ),
                   ),
 
@@ -391,6 +497,7 @@ class _HomePageState extends State<HomePage> {
                       items: _selectedFacePersonId != null
                           ? _buildFaceGridItems()
                           : buildGridItems(),
+                      selectedPersonId: _selectedFacePersonId,
                       onFaceSelected: _selectFacePerson,
                       faceNameResolver: _facePersonName,
                       onChanged: () {
@@ -959,6 +1066,7 @@ class _HomePageState extends State<HomePage> {
 
     _faceDatabaseDirectory = _getFaceDatabaseDirectory();
     await _loadFaceDatabase();
+    await _loadCategoryLearningModel();
 
     final project = _ensureProject();
     project.sourcePaths = List<String>.from(sourcePaths);
@@ -1253,6 +1361,7 @@ class _HomePageState extends State<HomePage> {
       });
 
       await _loadFaceDatabase();
+      await _loadCategoryLearningModel();
 
       final project = _ensureProject();
 
@@ -1563,6 +1672,14 @@ class _HomePageState extends State<HomePage> {
         _projectPath = path;
       });
 
+      // مدل دسته‌بندی همراه فایل پروژه منتقل می‌شود.
+      const categoryService = CategoryLearningService();
+      _categoryLearningModel = categoryService.rebuild(groups);
+      await categoryService.save(
+        File(path).parent.path,
+        _categoryLearningModel,
+      );
+
       await displayInfoBar(
         context,
         builder: (context, close) {
@@ -1599,6 +1716,7 @@ class _HomePageState extends State<HomePage> {
       duplicateGroups = [];
       selectedGroup = null;
       _selectedFacePersonId = null;
+      _categoryLearningModel = const CategoryLearningModel();
       progress = null;
 
       _project = PhotonProject.empty('پروژه جدید');
@@ -1649,6 +1767,7 @@ class _HomePageState extends State<HomePage> {
 
       await ProjectRepository.rememberProjectPath(path);
       await _loadFaceDatabase();
+      await _loadCategoryLearningModel();
 
       if (showRecoveryPrompt) {
         await _offerPendingOperations();

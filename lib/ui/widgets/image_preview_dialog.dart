@@ -19,6 +19,9 @@ class ImagePreviewDialog extends StatefulWidget {
   /// Resolves the stable face person id to the user-visible name.
   final String? Function(String personId)? faceNameResolver;
 
+  /// Person selected in the People tab. Its face is highlighted in green.
+  final String? selectedPersonId;
+
   /// Whether face rectangles are initially visible.
   final bool? initialShowFaceBoxes;
 
@@ -28,6 +31,7 @@ class ImagePreviewDialog extends StatefulWidget {
     required this.initialIndex,
     this.onFaceSelected,
     this.faceNameResolver,
+    this.selectedPersonId,
     this.initialShowFaceBoxes,
   });
 
@@ -402,6 +406,7 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
                 faces: _showFaceBoxes ? item.faces : const [],
                 onFaceSelected: widget.onFaceSelected,
                 faceNameResolver: widget.faceNameResolver,
+                selectedPersonId: widget.selectedPersonId,
               ),
             ),
           ),
@@ -823,12 +828,14 @@ class _FaceOverlayImage extends StatefulWidget {
   final List<FaceInfo> faces;
   final ValueChanged<String>? onFaceSelected;
   final String? Function(String personId)? faceNameResolver;
+  final String? selectedPersonId;
 
   const _FaceOverlayImage({
     required this.path,
     required this.faces,
     this.onFaceSelected,
     this.faceNameResolver,
+    this.selectedPersonId,
   });
 
   @override
@@ -858,9 +865,9 @@ class _FaceOverlayImageState extends State<_FaceOverlayImage> {
   }
 
   void _resolveImage() {
-    final stream = FileImage(File(widget.path)).resolve(
-      const ImageConfiguration(),
-    );
+    final stream = FileImage(
+      File(widget.path),
+    ).resolve(const ImageConfiguration());
     _imageStream = stream;
     stream.addListener(_imageListener);
   }
@@ -930,6 +937,13 @@ class _FaceOverlayImageState extends State<_FaceOverlayImage> {
     final height = face.height * analysisScale;
 
     final personId = face.personId;
+    final isSelectedPerson =
+        personId != null &&
+        widget.selectedPersonId != null &&
+        personId == widget.selectedPersonId;
+
+    final borderColor = isSelectedPerson ? Colors.green : Colors.red;
+
     final label = personId == null
         ? 'چهره'
         : (widget.faceNameResolver?.call(personId) ?? 'شخص');
@@ -954,7 +968,7 @@ class _FaceOverlayImageState extends State<_FaceOverlayImage> {
               child: IgnorePointer(
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    border: Border.all(color: Colors.red, width: 4),
+                    border: Border.all(color: borderColor, width: 4),
                     borderRadius: BorderRadius.circular(5),
                   ),
                 ),
@@ -962,17 +976,17 @@ class _FaceOverlayImageState extends State<_FaceOverlayImage> {
             ),
             Positioned(
               left: 0,
-              top: -30,
+              top: -58,
               child: IgnorePointer(
                 child: Container(
-                  constraints: const BoxConstraints(maxWidth: 180),
+                  constraints: const BoxConstraints(maxWidth: 600),
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 7,
-                    vertical: 4,
+                    horizontal: 14,
+                    vertical: 8,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.88),
-                    borderRadius: BorderRadius.circular(5),
+                    color: borderColor.withOpacity(0.90),
+                    borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
                     label,
@@ -980,8 +994,8 @@ class _FaceOverlayImageState extends State<_FaceOverlayImage> {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
+                      fontSize: 55,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),

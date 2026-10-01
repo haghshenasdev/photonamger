@@ -14,6 +14,7 @@ class DuplicateStackTile extends StatefulWidget {
   final List<PreviewItem> previewItems;
   final ValueChanged<String>? onFaceSelected;
   final String? Function(String personId)? faceNameResolver;
+  final String? selectedPersonId;
 
   const DuplicateStackTile({
     super.key,
@@ -21,6 +22,7 @@ class DuplicateStackTile extends StatefulWidget {
     required this.previewItems,
     this.onFaceSelected,
     this.faceNameResolver,
+    this.selectedPersonId,
   });
 
   @override
@@ -60,6 +62,7 @@ class _DuplicateStackTileState extends State<DuplicateStackTile> {
         initialIndex: index,
         onFaceSelected: widget.onFaceSelected,
         faceNameResolver: widget.faceNameResolver,
+        selectedPersonId: widget.selectedPersonId,
       ),
     );
 

@@ -14,6 +14,7 @@ class MediaGrid extends StatelessWidget {
   final VoidCallback? onChanged;
   final ValueChanged<String>? onFaceSelected;
   final String? Function(String personId)? faceNameResolver;
+  final String? selectedPersonId;
 
   const MediaGrid({
     super.key,
@@ -21,6 +22,7 @@ class MediaGrid extends StatelessWidget {
     this.onChanged,
     this.onFaceSelected,
     this.faceNameResolver,
+    this.selectedPersonId,
   });
 
   @override
@@ -61,6 +63,7 @@ class MediaGrid extends StatelessWidget {
               previewItems: previewItems,
               onFaceSelected: onFaceSelected,
               faceNameResolver: faceNameResolver,
+              selectedPersonId: selectedPersonId,
             );
           }
 
@@ -70,6 +73,7 @@ class MediaGrid extends StatelessWidget {
             onChanged: onChanged,
             onFaceSelected: onFaceSelected,
             faceNameResolver: faceNameResolver,
+            selectedPersonId: selectedPersonId,
           );
         },
       ),
@@ -84,6 +88,7 @@ class _MediaTile extends StatefulWidget {
   final VoidCallback? onChanged;
   final ValueChanged<String>? onFaceSelected;
   final String? Function(String personId)? faceNameResolver;
+  final String? selectedPersonId;
 
   const _MediaTile({
     required this.item,
@@ -91,6 +96,7 @@ class _MediaTile extends StatefulWidget {
     this.onChanged,
     this.onFaceSelected,
     this.faceNameResolver,
+    this.selectedPersonId,
   });
 
   @override
@@ -130,6 +136,7 @@ class _MediaTileState extends State<_MediaTile> {
         initialIndex: index,
         onFaceSelected: widget.onFaceSelected,
         faceNameResolver: widget.faceNameResolver,
+        selectedPersonId: widget.selectedPersonId,
       ),
     );
 
