@@ -1,18 +1,36 @@
 import 'dart:io';
+import 'dart:math' as math;
+
+import 'package:image/image.dart' as img;
 
 import 'package:fgphoto/ui/models/preview_item.dart';
 import 'package:fgphoto/ui/widgets/video_preview.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/analysis/face_info.dart';
+
 class ImagePreviewDialog extends StatefulWidget {
   final List<PreviewItem> items;
   final int initialIndex;
+
+  /// Called when the user clicks a detected face.
+  /// The parent can switch to that person's image collection.
+  final ValueChanged<String>? onFaceSelected;
+
+  /// Resolves the stable face person id to the user-visible name.
+  final String? Function(String personId)? faceNameResolver;
+
+  /// Whether face rectangles are initially visible.
+  final bool? initialShowFaceBoxes;
 
   const ImagePreviewDialog({
     super.key,
     required this.items,
     required this.initialIndex,
+    this.onFaceSelected,
+    this.faceNameResolver,
+    this.initialShowFaceBoxes,
   });
 
   @override
@@ -25,6 +43,10 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
   /// ایندکس عکس فعلی داخل گروه Duplicate
   int duplicateIndex = 0;
 
+  static bool _showFaceBoxesDefault = true;
+
+  late bool _showFaceBoxes;
+
   final FocusNode _focusNode = FocusNode();
 
   @override
@@ -32,6 +54,7 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
     super.initState();
 
     currentIndex = widget.initialIndex;
+    _showFaceBoxes = widget.initialShowFaceBoxes ?? _showFaceBoxesDefault;
 
     if (widget.items[currentIndex].isDuplicate) {
       final group = widget.items[currentIndex].duplicate!;
@@ -271,6 +294,25 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
 
       actions: [
         Button(
+          onPressed: () {
+            setState(() {
+              _showFaceBoxes = !_showFaceBoxes;
+              _showFaceBoxesDefault = _showFaceBoxes;
+            });
+          },
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                _showFaceBoxes ? FluentIcons.view : FluentIcons.hide,
+                size: 14,
+              ),
+              const SizedBox(width: 7),
+              Text(_showFaceBoxes ? 'مخفی کردن چهره‌ها' : 'نمایش چهره‌ها'),
+            ],
+          ),
+        ),
+        Button(
           child: const Text('بستن'),
           onPressed: () {
             Navigator.pop(context, true);
@@ -357,7 +399,12 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
             minScale: 0.5,
             maxScale: 8,
             child: Center(
-              child: Image.file(File(item.path), fit: BoxFit.contain),
+              child: _FaceOverlayImage(
+                path: item.path,
+                faces: _showFaceBoxes ? item.faces : const [],
+                onFaceSelected: widget.onFaceSelected,
+                faceNameResolver: widget.faceNameResolver,
+              ),
             ),
           ),
         ),
@@ -412,9 +459,11 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
                           minScale: 0.5,
                           maxScale: 8,
                           child: Center(
-                            child: Image.file(
-                              File(item.path),
-                              fit: BoxFit.contain,
+                            child: _FaceOverlayImage(
+                              path: item.path,
+                              faces: _showFaceBoxes ? item.faces : const [],
+                              onFaceSelected: widget.onFaceSelected,
+                              faceNameResolver: widget.faceNameResolver,
                             ),
                           ),
                         ),
@@ -751,6 +800,167 @@ class _FullscreenVideoDialogState extends State<_FullscreenVideoDialog> {
                 onPressed: () {
                   Navigator.pop(context);
                 },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// FACE OVERLAY
+// ============================================================================
+//
+// The face coordinates are stored in the recognition image (longest side
+// capped at 1600px). We first recover the original image dimensions and put
+// both the image and its face rectangles inside the same coordinate space.
+// Therefore BoxFit.contain and InteractiveViewer do not make the rectangles
+// drift away from the detected faces.
+// ============================================================================
+
+class _FaceOverlayImage extends StatefulWidget {
+  final String path;
+  final List<FaceInfo> faces;
+  final ValueChanged<String>? onFaceSelected;
+  final String? Function(String personId)? faceNameResolver;
+
+  const _FaceOverlayImage({
+    required this.path,
+    required this.faces,
+    this.onFaceSelected,
+    this.faceNameResolver,
+  });
+
+  @override
+  State<_FaceOverlayImage> createState() => _FaceOverlayImageState();
+}
+
+class _FaceOverlayImageState extends State<_FaceOverlayImage> {
+  Future<Size?>? _sizeFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _sizeFuture = _readSize();
+  }
+
+  @override
+  void didUpdateWidget(covariant _FaceOverlayImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.path != widget.path) {
+      _sizeFuture = _readSize();
+    }
+  }
+
+  Future<Size?> _readSize() async {
+    try {
+      final bytes = await File(widget.path).readAsBytes();
+      final decoded = img.decodeImage(bytes);
+
+      if (decoded == null) return null;
+
+      return Size(decoded.width.toDouble(), decoded.height.toDouble());
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Size?>(
+      future: _sizeFuture,
+      builder: (context, snapshot) {
+        final size = snapshot.data;
+
+        if (size == null || size.width <= 0 || size.height <= 0) {
+          return Image.file(File(widget.path), fit: BoxFit.contain);
+        }
+
+        return Center(child: _buildImageWithFaces(size));
+      },
+    );
+  }
+
+  Widget _buildImageWithFaces(Size originalSize) {
+    final analysisScale =
+        math.max(originalSize.width, originalSize.height) > 1600
+        ? math.max(originalSize.width, originalSize.height) / 1600.0
+        : 1.0;
+
+    return FittedBox(
+      fit: BoxFit.contain,
+      child: SizedBox(
+        width: originalSize.width,
+        height: originalSize.height,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned.fill(
+              child: Image.file(File(widget.path), fit: BoxFit.fill),
+            ),
+            ...widget.faces.map((face) => _faceBox(face, analysisScale)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _faceBox(FaceInfo face, double analysisScale) {
+    final left = face.left * analysisScale;
+    final top = face.top * analysisScale;
+    final width = face.width * analysisScale;
+    final height = face.height * analysisScale;
+
+    final personId = face.personId;
+    final label = personId == null
+        ? 'چهره'
+        : (widget.faceNameResolver?.call(personId) ?? 'شخص');
+
+    return Positioned(
+      left: left,
+      top: top,
+      width: width,
+      height: height,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: personId == null
+            ? null
+            : () {
+                widget.onFaceSelected?.call(personId);
+                Navigator.of(context).pop(true);
+              },
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.red, width: 3),
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              top: -30,
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 180),
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.88),
+                  borderRadius: BorderRadius.circular(5),
+                ),
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ),
           ],

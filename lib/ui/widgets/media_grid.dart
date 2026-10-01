@@ -12,8 +12,16 @@ import 'package:fluent_ui/fluent_ui.dart';
 class MediaGrid extends StatelessWidget {
   final List<GridItem> items;
   final VoidCallback? onChanged;
+  final ValueChanged<String>? onFaceSelected;
+  final String? Function(String personId)? faceNameResolver;
 
-  const MediaGrid({super.key, required this.items, this.onChanged});
+  const MediaGrid({
+    super.key,
+    required this.items,
+    this.onChanged,
+    this.onFaceSelected,
+    this.faceNameResolver,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -51,6 +59,8 @@ class MediaGrid extends StatelessWidget {
             return DuplicateStackTile(
               group: item.duplicateGroup!,
               previewItems: previewItems,
+              onFaceSelected: onFaceSelected,
+              faceNameResolver: faceNameResolver,
             );
           }
 
@@ -58,6 +68,8 @@ class MediaGrid extends StatelessWidget {
             item: item.media!,
             previewItems: previewItems,
             onChanged: onChanged,
+            onFaceSelected: onFaceSelected,
+            faceNameResolver: faceNameResolver,
           );
         },
       ),
@@ -70,11 +82,15 @@ class _MediaTile extends StatefulWidget {
 
   final List<PreviewItem> previewItems;
   final VoidCallback? onChanged;
+  final ValueChanged<String>? onFaceSelected;
+  final String? Function(String personId)? faceNameResolver;
 
   const _MediaTile({
     required this.item,
     required this.previewItems,
     this.onChanged,
+    this.onFaceSelected,
+    this.faceNameResolver,
   });
 
   @override
@@ -109,8 +125,12 @@ class _MediaTileState extends State<_MediaTile> {
 
     final changed = await showDialog<bool>(
       context: context,
-      builder: (_) =>
-          ImagePreviewDialog(items: widget.previewItems, initialIndex: index),
+      builder: (_) => ImagePreviewDialog(
+        items: widget.previewItems,
+        initialIndex: index,
+        onFaceSelected: widget.onFaceSelected,
+        faceNameResolver: widget.faceNameResolver,
+      ),
     );
 
     if (changed == true) {

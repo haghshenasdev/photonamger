@@ -12,11 +12,15 @@ class DuplicateStackTile extends StatefulWidget {
 
   // لیست کامل Preview
   final List<PreviewItem> previewItems;
+  final ValueChanged<String>? onFaceSelected;
+  final String? Function(String personId)? faceNameResolver;
 
   const DuplicateStackTile({
     super.key,
     required this.group,
     required this.previewItems,
+    this.onFaceSelected,
+    this.faceNameResolver,
   });
 
   @override
@@ -51,8 +55,12 @@ class _DuplicateStackTileState extends State<DuplicateStackTile> {
 
     await showDialog(
       context: context,
-      builder: (_) =>
-          ImagePreviewDialog(items: widget.previewItems, initialIndex: index),
+      builder: (_) => ImagePreviewDialog(
+        items: widget.previewItems,
+        initialIndex: index,
+        onFaceSelected: widget.onFaceSelected,
+        faceNameResolver: widget.faceNameResolver,
+      ),
     );
 
     if (mounted) {

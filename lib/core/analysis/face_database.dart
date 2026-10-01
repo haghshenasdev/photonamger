@@ -660,6 +660,93 @@ class FaceDatabaseService {
     await save(databaseDirectory, db);
   }
 
+
+  /// Finds pairs of people whose stored face embeddings are unusually close.
+  ///
+  /// This is intentionally a suggestion only: the application never merges
+  /// these people automatically. The user must explicitly confirm a merge.
+  List<FaceMergeSuggestion> findMergeSuggestions(
+    FaceDatabase db, {
+    double threshold = 0.57,
+    int maxResults = 12,
+  }) {
+    if (db.persons.length < 2 || db.faces.isEmpty) {
+      return const [];
+    }
+
+    final prototypes = _buildPrototypes(db);
+    final exemplars = _buildExemplars(db);
+
+    final suggestions = <FaceMergeSuggestion>[];
+
+    for (var i = 0; i < db.persons.length; i++) {
+      final a = db.persons[i];
+      final aPrototype = prototypes[a.id];
+      final aExemplars = exemplars[a.id];
+
+      if (aPrototype == null && (aExemplars == null || aExemplars.isEmpty)) {
+        continue;
+      }
+
+      for (var j = i + 1; j < db.persons.length; j++) {
+        final b = db.persons[j];
+        final bPrototype = prototypes[b.id];
+        final bExemplars = exemplars[b.id];
+
+        if (bPrototype == null &&
+            (bExemplars == null || bExemplars.isEmpty)) {
+          continue;
+        }
+
+        var best = -1.0;
+
+        if (aPrototype != null && bPrototype != null) {
+          best = math.max(best, cosine(aPrototype, bPrototype));
+        }
+
+        if (aPrototype != null && bExemplars != null) {
+          for (final sample in bExemplars.take(4)) {
+            best = math.max(best, cosine(aPrototype, sample));
+          }
+        }
+
+        if (bPrototype != null && aExemplars != null) {
+          for (final sample in aExemplars.take(4)) {
+            best = math.max(best, cosine(bPrototype, sample));
+          }
+        }
+
+        if (aExemplars != null && bExemplars != null) {
+          for (final sampleA in aExemplars.take(3)) {
+            for (final sampleB in bExemplars.take(3)) {
+              best = math.max(best, cosine(sampleA, sampleB));
+            }
+          }
+        }
+
+        if (best >= threshold) {
+          suggestions.add(
+            FaceMergeSuggestion(
+              firstPersonId: a.id,
+              secondPersonId: b.id,
+              similarity: best,
+            ),
+          );
+        }
+      }
+    }
+
+    suggestions.sort(
+      (a, b) => b.similarity.compareTo(a.similarity),
+    );
+
+    if (suggestions.length > maxResults) {
+      return suggestions.sublist(0, maxResults);
+    }
+
+    return suggestions;
+  }
+
   Future<void> renamePerson({
     required String databaseDirectory,
     required String personId,
@@ -927,6 +1014,19 @@ class FaceDatabaseService {
 
     return null;
   }
+}
+
+
+class FaceMergeSuggestion {
+  final String firstPersonId;
+  final String secondPersonId;
+  final double similarity;
+
+  const FaceMergeSuggestion({
+    required this.firstPersonId,
+    required this.secondPersonId,
+    required this.similarity,
+  });
 }
 
 class _FaceLocation {

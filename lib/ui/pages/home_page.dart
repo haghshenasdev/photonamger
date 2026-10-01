@@ -62,6 +62,7 @@ class _HomePageState extends State<HomePage> {
   String? _faceDatabaseDirectory;
   String? _selectedFacePersonId;
   int _rightPanelTab = 0;
+  List<FaceMergeSuggestion> _faceMergeSuggestions = const [];
 
   AnalysisProgress? progress;
 
@@ -95,14 +96,16 @@ class _HomePageState extends State<HomePage> {
   }
 
   String _getFaceDatabaseDirectory() {
-    // Keep the face database next to the source collection. This makes it
-    // travel with the photos instead of depending on AppData or the machine.
-    if (sourcePaths.isNotEmpty) {
-      return sourcePaths.first;
-    }
-
+    // Once a project has been saved, keep the face database beside the
+    // project file. This is important when the user later scans another
+    // source folder: the same people database must continue to be used.
     if (_projectPath != null && _projectPath!.trim().isNotEmpty) {
       return File(_projectPath!).parent.path;
+    }
+
+    // Before the first project save, fall back to the first source root.
+    if (sourcePaths.isNotEmpty) {
+      return sourcePaths.first;
     }
 
     return Directory.current.path;
@@ -110,13 +113,38 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _loadFaceDatabase() async {
     final directory = _getFaceDatabaseDirectory();
-    final db = await const FaceDatabaseService().load(directory);
+    const service = FaceDatabaseService();
+
+    var db = await service.load(directory);
+
+    // Backward compatibility:
+    // older versions stored the database in sourcePaths.first. When a
+    // project is now saved beside another folder, move/copy the existing
+    // identity database into the project directory so names survive.
+    if (db.persons.isEmpty &&
+        db.faces.isEmpty &&
+        sourcePaths.isNotEmpty &&
+        _projectPath != null) {
+      final legacyDirectory = sourcePaths.first;
+      if (_normalizePath(legacyDirectory) !=
+          _normalizePath(directory)) {
+        final legacy = await service.load(legacyDirectory);
+        if (legacy.persons.isNotEmpty || legacy.faces.isNotEmpty) {
+          db = legacy;
+          await service.save(directory, db);
+        }
+      }
+    }
 
     if (!mounted) return;
+
+    final suggestions =
+        service.findMergeSuggestions(db);
 
     setState(() {
       _faceDatabaseDirectory = directory;
       _faceDatabase = db;
+      _faceMergeSuggestions = suggestions;
     });
   }
 
@@ -171,6 +199,13 @@ class _HomePageState extends State<HomePage> {
     }
 
     return result;
+  }
+
+  String? _facePersonName(String personId) {
+    for (final person in _faceDatabase.persons) {
+      if (person.id == personId) return person.name;
+    }
+    return null;
   }
 
   void _selectFacePerson(String? personId) {
@@ -250,6 +285,8 @@ class _HomePageState extends State<HomePage> {
                       items: _selectedFacePersonId != null
                           ? _buildFaceGridItems()
                           : buildGridItems(),
+                      onFaceSelected: _selectFacePerson,
+                      faceNameResolver: _facePersonName,
                       onChanged: () {
                         setState(() {});
                         _scheduleProjectSave();
@@ -288,6 +325,7 @@ class _HomePageState extends State<HomePage> {
                             onPersonSelected: _selectFacePerson,
                             onRename: _renameFacePerson,
                             onMerge: _mergeFacePersons,
+                            suggestions: _faceMergeSuggestions,
                           ),
                         ),
                       ],
@@ -521,6 +559,8 @@ class _HomePageState extends State<HomePage> {
         return ImagePreviewDialog(
           items: previewItems,
           initialIndex: initialIndex,
+          onFaceSelected: _selectFacePerson,
+          faceNameResolver: _facePersonName,
         );
       },
     );
