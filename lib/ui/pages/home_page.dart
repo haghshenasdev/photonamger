@@ -67,8 +67,7 @@ class _HomePageState extends State<HomePage> {
   int _rightPanelTab = 0;
   List<FaceMergeSuggestion> _faceMergeSuggestions = const [];
 
-  CategoryLearningModel _categoryLearningModel =
-      const CategoryLearningModel();
+  CategoryLearningModel _categoryLearningModel = const CategoryLearningModel();
 
   AnalysisProgress? progress;
 
@@ -132,8 +131,7 @@ class _HomePageState extends State<HomePage> {
         sourcePaths.isNotEmpty &&
         _projectPath != null) {
       final legacyDirectory = sourcePaths.first;
-      if (_normalizePath(legacyDirectory) !=
-          _normalizePath(directory)) {
+      if (_normalizePath(legacyDirectory) != _normalizePath(directory)) {
         final legacy = await service.load(legacyDirectory);
         if (legacy.persons.isNotEmpty || legacy.faces.isNotEmpty) {
           db = legacy;
@@ -144,8 +142,7 @@ class _HomePageState extends State<HomePage> {
 
     if (!mounted) return;
 
-    final suggestions =
-        service.findMergeSuggestions(db);
+    final suggestions = service.findMergeSuggestions(db);
 
     setState(() {
       _faceDatabaseDirectory = directory;
@@ -155,12 +152,9 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _loadCategoryLearningModel() async {
-    final directory = _projectPath != null &&
-            _projectPath!.trim().isNotEmpty
+    final directory = _projectPath != null && _projectPath!.trim().isNotEmpty
         ? File(_projectPath!).parent.path
-        : (sourcePaths.isNotEmpty
-            ? sourcePaths.first
-            : Directory.current.path);
+        : (sourcePaths.isNotEmpty ? sourcePaths.first : Directory.current.path);
 
     const service = CategoryLearningService();
     var model = await service.load(directory);
@@ -182,12 +176,9 @@ class _HomePageState extends State<HomePage> {
   Future<void> _suggestCategoriesFromTitles() async {
     if (groups.isEmpty) return;
 
-    final directory = _projectPath != null &&
-            _projectPath!.trim().isNotEmpty
+    final directory = _projectPath != null && _projectPath!.trim().isNotEmpty
         ? File(_projectPath!).parent.path
-        : (sourcePaths.isNotEmpty
-            ? sourcePaths.first
-            : Directory.current.path);
+        : (sourcePaths.isNotEmpty ? sourcePaths.first : Directory.current.path);
 
     const service = CategoryLearningService();
 
@@ -246,9 +237,7 @@ class _HomePageState extends State<HomePage> {
               ? 'هیچ دسته‌بندی‌ای اعمال نشد.'
               : '$applied گروه دسته‌بندی شد.',
         ),
-        severity: applied == 0
-            ? InfoBarSeverity.info
-            : InfoBarSeverity.success,
+        severity: applied == 0 ? InfoBarSeverity.info : InfoBarSeverity.success,
         onClose: close,
       ),
     );
@@ -270,26 +259,118 @@ class _HomePageState extends State<HomePage> {
     String primaryPersonId,
     String secondaryPersonId,
   ) async {
-    final directory =
-        _faceDatabaseDirectory ?? _getFaceDatabaseDirectory();
+    if (primaryPersonId == secondaryPersonId) {
+      return;
+    }
 
-    await const FaceDatabaseService().mergePersons(
-      databaseDirectory: directory,
-      primaryPersonId: primaryPersonId,
-      secondaryPersonId: secondaryPersonId,
-    );
+    final directory = _faceDatabaseDirectory ?? _getFaceDatabaseDirectory();
 
-    if (!mounted) return;
+    try {
+      // ============================================================
+      // 1. ابتدا ادغام را در Face Database انجام می‌دهیم.
+      //
+      // تمام StoredFaceهای شخص دوم به شخص اصلی منتقل می‌شوند.
+      // ============================================================
+      await const FaceDatabaseService().mergePersons(
+        databaseDirectory: directory,
+        primaryPersonId: primaryPersonId,
+        secondaryPersonId: secondaryPersonId,
+      );
 
-    await _loadFaceDatabase();
+      if (!mounted) return;
 
-    setState(() {
-      if (_selectedFacePersonId == secondaryPersonId) {
-        _selectedFacePersonId = primaryPersonId;
+      // ============================================================
+      // 2. بسیار مهم:
+      //
+      // MediaItemهای موجود در حافظه هنوز personId قدیمی را دارند.
+      // آنها را هم اصلاح می‌کنیم تا People و Grid بلافاصله
+      // بعد از Merge با Database هماهنگ باشند.
+      // ============================================================
+
+      void updateFaces(List<MediaItem> items) {
+        for (final item in items) {
+          for (final face in item.faces) {
+            if (face.personId == secondaryPersonId) {
+              face.personId = primaryPersonId;
+            }
+          }
+        }
       }
-    });
 
-    await _enqueueProjectSave();
+      // Mediaهای اصلی
+      updateFaces(mediaItems);
+
+      // ============================================================
+      // Duplicate Groups
+      //
+      // برای اطمینان، آیتم‌های داخل Duplicate Groupها را هم
+      // جداگانه اصلاح می‌کنیم.
+      // ============================================================
+      for (final group in duplicateGroups) {
+        updateFaces(group.items);
+      }
+
+      // ============================================================
+      // 3. اگر شخص دوم انتخاب شده بود، انتخاب را به شخص اصلی منتقل
+      // می‌کنیم.
+      // ============================================================
+      setState(() {
+        if (_selectedFacePersonId == secondaryPersonId) {
+          _selectedFacePersonId = primaryPersonId;
+        }
+
+        // اگر شخص اصلی یا شخص دوم در لیست انتخاب merge بودند،
+        // وضعیت UI را پاک می‌کنیم.
+      });
+
+      // ============================================================
+      // 4. Database را دوباره Load می‌کنیم.
+      //
+      // این کار باعث می‌شود:
+      // - شخص دوم از persons حذف شده باشد
+      // - نام شخص اصلی حفظ شده باشد
+      // - پیشنهادهای Merge دوباره محاسبه شوند
+      // ============================================================
+      await _loadFaceDatabase();
+
+      if (!mounted) return;
+
+      // ============================================================
+      // 5. پروژه را بعد از اصلاح MediaItemها ذخیره می‌کنیم.
+      //
+      // این قسمت بسیار مهم است؛ چون اگر قبل از اصلاح MediaItemها
+      // پروژه ذخیره شود، personId قدیمی دوباره داخل project JSON
+      // ذخیره می‌شود.
+      // ============================================================
+      await _enqueueProjectSave();
+
+      if (!mounted) return;
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          title: const Text('ادغام افراد انجام شد'),
+          content: const Text('تمام چهره‌های شخص دوم به شخص اصلی منتقل شدند.'),
+          severity: InfoBarSeverity.success,
+          onClose: close,
+        ),
+      );
+    } catch (e, stackTrace) {
+      debugPrint('Face person merge error: $e');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          title: const Text('خطا در ادغام افراد'),
+          content: Text(e.toString()),
+          severity: InfoBarSeverity.error,
+          onClose: close,
+        ),
+      );
+    }
   }
 
   List<GridItem> _buildFaceGridItems() {
@@ -304,9 +385,7 @@ class _HomePageState extends State<HomePage> {
 
     for (final duplicateGroup in duplicateGroups) {
       final containsPerson = duplicateGroup.items.any(
-        (item) => item.faces.any(
-          (face) => face.personId == personId,
-        ),
+        (item) => item.faces.any((face) => face.personId == personId),
       );
 
       if (!containsPerson) continue;
@@ -356,7 +435,9 @@ class _HomePageState extends State<HomePage> {
           context,
           builder: (context, close) => InfoBar(
             title: const Text('چهره‌ای پیدا نشد'),
-            content: const Text('در تصویر انتخاب‌شده چهره قابل تشخیصی پیدا نشد.'),
+            content: const Text(
+              'در تصویر انتخاب‌شده چهره قابل تشخیصی پیدا نشد.',
+            ),
             severity: InfoBarSeverity.warning,
             onClose: close,
           ),
@@ -381,7 +462,9 @@ class _HomePageState extends State<HomePage> {
           context,
           builder: (context, close) => InfoBar(
             title: const Text('شخص مشابه پیدا نشد'),
-            content: const Text('چهره انتخاب‌شده با افراد ذخیره‌شده تطبیق کافی نداشت.'),
+            content: const Text(
+              'چهره انتخاب‌شده با افراد ذخیره‌شده تطبیق کافی نداشت.',
+            ),
             severity: InfoBarSeverity.info,
             onClose: close,
           ),
@@ -521,8 +604,7 @@ class _HomePageState extends State<HomePage> {
                           }
                         });
                       },
-                      closeButtonVisibility:
-                          CloseButtonVisibilityMode.never,
+                      closeButtonVisibility: CloseButtonVisibilityMode.never,
                       showScrollButtons: false,
                       tabs: [
                         Tab(
@@ -683,10 +765,9 @@ class _HomePageState extends State<HomePage> {
                 ),
 
                 Button(
-                  onPressed:
-                      mediaItems.isEmpty || engine.isRunning
-                          ? null
-                          : _analyzeFacesOnly,
+                  onPressed: mediaItems.isEmpty || engine.isRunning
+                      ? null
+                      : _analyzeFacesOnly,
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [

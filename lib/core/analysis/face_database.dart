@@ -229,10 +229,7 @@ class FaceMatchResult {
   final FacePerson person;
   final double similarity;
 
-  const FaceMatchResult({
-    required this.person,
-    required this.similarity,
-  });
+  const FaceMatchResult({required this.person, required this.similarity});
 }
 
 class FaceDatabaseService {
@@ -555,12 +552,7 @@ class FaceDatabaseService {
 
         final normalized = _normalize(detected.embedding);
 
-        final match = _findPerson(
-          normalized,
-          prototypes,
-          exemplars,
-          db,
-        );
+        final match = _findPerson(normalized, prototypes, exemplars, db);
 
         final person = match ?? _createPerson(db);
 
@@ -581,33 +573,28 @@ class FaceDatabaseService {
 
         db.faces.add(stored);
 
-        prototypes[person.id] =
-            _blend(prototypes[person.id], normalized);
+        prototypes[person.id] = _blend(prototypes[person.id], normalized);
 
-        final personExemplars =
-            exemplars.putIfAbsent(person.id, () => <List<double>>[]);
+        final personExemplars = exemplars.putIfAbsent(
+          person.id,
+          () => <List<double>>[],
+        );
 
         if (personExemplars.length < maxExemplarsPerPerson) {
           personExemplars.add(List<double>.from(normalized));
         } else {
           // Replace the oldest representative occasionally. This keeps
           // matching fast while allowing the identity to adapt over time.
-          final replaceIndex =
-              db.faces.length % maxExemplarsPerPerson;
-          personExemplars[replaceIndex] =
-              List<double>.from(normalized);
+          final replaceIndex = db.faces.length % maxExemplarsPerPerson;
+          personExemplars[replaceIndex] = List<double>.from(normalized);
         }
 
         item.faces.add(
-          detected.copyWith(
-            embedding: normalized,
-            personId: person.id,
-          ),
+          detected.copyWith(embedding: normalized, personId: person.id),
         );
 
         // Keep the clearest/largest detected face as the person's cover.
-        final currentCoverScore =
-            _coverScoreForPerson(db, person.id);
+        final currentCoverScore = _coverScoreForPerson(db, person.id);
 
         if (person.coverRelativePath == null ||
             detected.quality >= currentCoverScore) {
@@ -663,13 +650,10 @@ class FaceDatabaseService {
 
     primary.updatedAt = DateTime.now();
 
-    db.persons.removeWhere(
-      (person) => person.id == secondaryPersonId,
-    );
+    db.persons.removeWhere((person) => person.id == secondaryPersonId);
 
     await save(databaseDirectory, db);
   }
-
 
   /// Finds pairs of people whose stored face embeddings are unusually close.
   ///
@@ -703,8 +687,7 @@ class FaceDatabaseService {
         final bPrototype = prototypes[b.id];
         final bExemplars = exemplars[b.id];
 
-        if (bPrototype == null &&
-            (bExemplars == null || bExemplars.isEmpty)) {
+        if (bPrototype == null && (bExemplars == null || bExemplars.isEmpty)) {
           continue;
         }
 
@@ -746,9 +729,7 @@ class FaceDatabaseService {
       }
     }
 
-    suggestions.sort(
-      (a, b) => b.similarity.compareTo(a.similarity),
-    );
+    suggestions.sort((a, b) => b.similarity.compareTo(a.similarity));
 
     if (suggestions.length > maxResults) {
       return suggestions.sublist(0, maxResults);
@@ -807,9 +788,7 @@ class FaceDatabaseService {
     for (final face in db.faces) {
       if (face.embedding.length < 8) continue;
 
-      grouped
-          .putIfAbsent(face.personId, () => [])
-          .add(face.embedding);
+      grouped.putIfAbsent(face.personId, () => []).add(face.embedding);
     }
 
     final result = <String, List<double>>{};
@@ -837,40 +816,28 @@ class FaceDatabaseService {
     return result;
   }
 
-  Map<String, List<List<double>>> _buildExemplars(
-    FaceDatabase db,
-  ) {
+  Map<String, List<List<double>>> _buildExemplars(FaceDatabase db) {
     final result = <String, List<List<double>>>{};
 
     // Prefer high-confidence faces. They are generally better identity
     // representatives than tiny/blurred detections.
     final sorted = List<StoredFace>.from(db.faces)
-      ..sort(
-        (a, b) => b.confidence.compareTo(a.confidence),
-      );
+      ..sort((a, b) => b.confidence.compareTo(a.confidence));
 
     for (final face in sorted) {
       if (face.embedding.length < 8) continue;
 
-      final list = result.putIfAbsent(
-        face.personId,
-        () => <List<double>>[],
-      );
+      final list = result.putIfAbsent(face.personId, () => <List<double>>[]);
 
       if (list.length >= maxExemplarsPerPerson) continue;
 
-      list.add(
-        _normalize(face.embedding),
-      );
+      list.add(_normalize(face.embedding));
     }
 
     return result;
   }
 
-  FaceMatchResult? findBestPerson(
-    FaceDatabase db,
-    List<double> embedding,
-  ) {
+  FaceMatchResult? findBestPerson(FaceDatabase db, List<double> embedding) {
     if (embedding.length < 8 || db.persons.isEmpty) {
       return null;
     }
@@ -907,10 +874,7 @@ class FaceDatabaseService {
       return null;
     }
 
-    return FaceMatchResult(
-      person: bestPerson,
-      similarity: bestScore,
-    );
+    return FaceMatchResult(person: bestPerson, similarity: bestScore);
   }
 
   FacePerson? _findPerson(
@@ -927,20 +891,14 @@ class FaceDatabaseService {
 
       final prototype = prototypes[person.id];
       if (prototype != null) {
-        score = math.max(
-          score,
-          cosine(embedding, prototype),
-        );
+        score = math.max(score, cosine(embedding, prototype));
       }
 
       final personExemplars = exemplars[person.id];
 
       if (personExemplars != null) {
         for (final exemplar in personExemplars) {
-          score = math.max(
-            score,
-            cosine(embedding, exemplar),
-          );
+          score = math.max(score, cosine(embedding, exemplar));
         }
       }
 
@@ -966,16 +924,10 @@ class FaceDatabaseService {
     return null;
   }
 
-  double _coverScoreForPerson(
-    FaceDatabase db,
-    String personId,
-  ) {
+  double _coverScoreForPerson(FaceDatabase db, String personId) {
     final person = db.persons.firstWhere(
       (p) => p.id == personId,
-      orElse: () => FacePerson(
-        id: '',
-        name: '',
-      ),
+      orElse: () => FacePerson(id: '', name: ''),
     );
 
     if (person.coverRelativePath == null) {
@@ -985,14 +937,13 @@ class FaceDatabaseService {
     for (final face in db.faces) {
       if (face.personId == personId &&
           face.relativePath == person.coverRelativePath) {
-        final sizeScore = (math.sqrt(
-                  math.max(1.0, face.width * face.height),
-                ) /
-                180.0)
-            .clamp(0.0, 1.0);
+        final sizeScore =
+            (math.sqrt(math.max(1.0, face.width * face.height)) / 180.0).clamp(
+              0.0,
+              1.0,
+            );
 
-        return face.confidence * 0.65 +
-            sizeScore * 0.35;
+        return face.confidence * 0.65 + sizeScore * 0.35;
       }
     }
 
@@ -1071,7 +1022,6 @@ class FaceDatabaseService {
     return null;
   }
 }
-
 
 class FaceMergeSuggestion {
   final String firstPersonId;
