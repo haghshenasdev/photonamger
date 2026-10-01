@@ -1,8 +1,6 @@
 import 'dart:io';
 import 'dart:math' as math;
 
-import 'package:image/image.dart' as img;
-
 import 'package:fgphoto/ui/models/preview_item.dart';
 import 'package:fgphoto/ui/widgets/video_preview.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -838,57 +836,70 @@ class _FaceOverlayImage extends StatefulWidget {
 }
 
 class _FaceOverlayImageState extends State<_FaceOverlayImage> {
-  Future<Size?>? _sizeFuture;
+  ImageStream? _imageStream;
+  late final ImageStreamListener _imageListener;
+  Size? _originalSize;
 
   @override
   void initState() {
     super.initState();
-    _sizeFuture = _readSize();
+    _imageListener = ImageStreamListener(_onImageInfo);
+    _resolveImage();
   }
 
   @override
   void didUpdateWidget(covariant _FaceOverlayImage oldWidget) {
     super.didUpdateWidget(oldWidget);
-
     if (oldWidget.path != widget.path) {
-      _sizeFuture = _readSize();
+      _removeImageListener();
+      _originalSize = null;
+      _resolveImage();
     }
   }
 
-  Future<Size?> _readSize() async {
-    try {
-      final bytes = await File(widget.path).readAsBytes();
-      final decoded = img.decodeImage(bytes);
+  void _resolveImage() {
+    final stream = FileImage(File(widget.path)).resolve(
+      const ImageConfiguration(),
+    );
+    _imageStream = stream;
+    stream.addListener(_imageListener);
+  }
 
-      if (decoded == null) return null;
+  void _onImageInfo(ImageInfo info, bool synchronousCall) {
+    if (!mounted) return;
+    final size = Size(
+      info.image.width.toDouble(),
+      info.image.height.toDouble(),
+    );
+    if (_originalSize == size) return;
+    setState(() => _originalSize = size);
+  }
 
-      return Size(decoded.width.toDouble(), decoded.height.toDouble());
-    } catch (_) {
-      return null;
-    }
+  void _removeImageListener() {
+    final stream = _imageStream;
+    if (stream == null) return;
+    stream.removeListener(_imageListener);
+    _imageStream = null;
+  }
+
+  @override
+  void dispose() {
+    _removeImageListener();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<Size?>(
-      future: _sizeFuture,
-      builder: (context, snapshot) {
-        final size = snapshot.data;
-
-        if (size == null || size.width <= 0 || size.height <= 0) {
-          return Image.file(File(widget.path), fit: BoxFit.contain);
-        }
-
-        return Center(child: _buildImageWithFaces(size));
-      },
-    );
+    final size = _originalSize;
+    if (size == null || size.width <= 0 || size.height <= 0) {
+      return Image.file(File(widget.path), fit: BoxFit.contain);
+    }
+    return Center(child: _buildImageWithFaces(size));
   }
 
   Widget _buildImageWithFaces(Size originalSize) {
-    final analysisScale =
-        math.max(originalSize.width, originalSize.height) > 1600
-        ? math.max(originalSize.width, originalSize.height) / 1600.0
-        : 1.0;
+    final largest = math.max(originalSize.width, originalSize.height);
+    final analysisScale = largest > 1600 ? largest / 1600.0 : 1.0;
 
     return FittedBox(
       fit: BoxFit.contain,
@@ -899,7 +910,11 @@ class _FaceOverlayImageState extends State<_FaceOverlayImage> {
           clipBehavior: Clip.none,
           children: [
             Positioned.fill(
-              child: Image.file(File(widget.path), fit: BoxFit.fill),
+              child: Image.file(
+                File(widget.path),
+                fit: BoxFit.fill,
+                filterQuality: FilterQuality.medium,
+              ),
             ),
             ...widget.faces.map((face) => _faceBox(face, analysisScale)),
           ],
@@ -922,8 +937,8 @@ class _FaceOverlayImageState extends State<_FaceOverlayImage> {
     return Positioned(
       left: left,
       top: top,
-      width: width,
-      height: height,
+      width: math.max(1, width),
+      height: math.max(1, height),
       child: GestureDetector(
         behavior: HitTestBehavior.translucent,
         onTap: personId == null
@@ -935,30 +950,39 @@ class _FaceOverlayImageState extends State<_FaceOverlayImage> {
         child: Stack(
           clipBehavior: Clip.none,
           children: [
-            Container(
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.red, width: 3),
-                borderRadius: BorderRadius.circular(4),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.red, width: 4),
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                ),
               ),
             ),
             Positioned(
               left: 0,
               top: -30,
-              child: Container(
-                constraints: const BoxConstraints(maxWidth: 180),
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.red.withOpacity(0.88),
-                  borderRadius: BorderRadius.circular(5),
-                ),
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+              child: IgnorePointer(
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 180),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.88),
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),

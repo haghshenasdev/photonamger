@@ -225,6 +225,16 @@ class FaceDatabase {
   }
 }
 
+class FaceMatchResult {
+  final FacePerson person;
+  final double similarity;
+
+  const FaceMatchResult({
+    required this.person,
+    required this.similarity,
+  });
+}
+
 class FaceDatabaseService {
   static const fileName = '.archino_faces.json';
   // SFace cosine similarity. We combine the person's prototype with a
@@ -855,6 +865,52 @@ class FaceDatabaseService {
     }
 
     return result;
+  }
+
+  FaceMatchResult? findBestPerson(
+    FaceDatabase db,
+    List<double> embedding,
+  ) {
+    if (embedding.length < 8 || db.persons.isEmpty) {
+      return null;
+    }
+
+    final normalized = _normalize(embedding);
+    final prototypes = _buildPrototypes(db);
+    final exemplars = _buildExemplars(db);
+
+    FacePerson? bestPerson;
+    var bestScore = -1.0;
+
+    for (final person in db.persons) {
+      var score = -1.0;
+
+      final prototype = prototypes[person.id];
+      if (prototype != null) {
+        score = math.max(score, cosine(normalized, prototype));
+      }
+
+      final personExemplars = exemplars[person.id];
+      if (personExemplars != null) {
+        for (final exemplar in personExemplars) {
+          score = math.max(score, cosine(normalized, exemplar));
+        }
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestPerson = person;
+      }
+    }
+
+    if (bestPerson == null || bestScore < recognitionThreshold) {
+      return null;
+    }
+
+    return FaceMatchResult(
+      person: bestPerson,
+      similarity: bestScore,
+    );
   }
 
   FacePerson? _findPerson(

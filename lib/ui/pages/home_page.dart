@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:file_picker/file_picker.dart';
 
 import 'package:fgphoto/core/analysis/analysis_progress.dart';
 import 'package:fgphoto/core/analysis/analysis_stage.dart';
@@ -190,9 +191,33 @@ class _HomePageState extends State<HomePage> {
     final personId = _selectedFacePersonId;
     if (personId == null) return [];
 
+    // Keep DuplicateGroup behavior intact in the people view too.
+    // A duplicate file must not appear once as a normal media tile and once
+    // inside its duplicate stack.
     final result = <GridItem>[];
+    final duplicateFiles = <String>{};
+
+    for (final duplicateGroup in duplicateGroups) {
+      final containsPerson = duplicateGroup.items.any(
+        (item) => item.faces.any(
+          (face) => face.personId == personId,
+        ),
+      );
+
+      if (!containsPerson) continue;
+
+      result.add(GridItem.duplicate(duplicateGroup));
+
+      for (final item in duplicateGroup.items) {
+        duplicateFiles.add(_normalizePath(item.path));
+      }
+    }
 
     for (final item in mediaItems) {
+      if (duplicateFiles.contains(_normalizePath(item.path))) {
+        continue;
+      }
+
       if (item.faces.any((face) => face.personId == personId)) {
         result.add(GridItem.media(item));
       }
@@ -206,6 +231,86 @@ class _HomePageState extends State<HomePage> {
       if (person.id == personId) return person.name;
     }
     return null;
+  }
+
+  Future<void> _searchFaceByImage() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: false,
+      withData: false,
+    );
+
+    final path = result?.files.single.path;
+    if (path == null || path.trim().isEmpty || !mounted) return;
+
+    try {
+      final detected = await engine.faceRecognitionEngine.analyzeFile(path);
+      if (detected.isEmpty) {
+        if (!mounted) return;
+        await displayInfoBar(
+          context,
+          builder: (context, close) => InfoBar(
+            title: const Text('چهره‌ای پیدا نشد'),
+            content: const Text('در تصویر انتخاب‌شده چهره قابل تشخیصی پیدا نشد.'),
+            severity: InfoBarSeverity.warning,
+            onClose: close,
+          ),
+        );
+        return;
+      }
+
+      const service = FaceDatabaseService();
+      FaceMatchResult? best;
+
+      for (final face in detected) {
+        final match = service.findBestPerson(_faceDatabase, face.embedding);
+        if (match == null) continue;
+        if (best == null || match.similarity > best.similarity) {
+          best = match;
+        }
+      }
+
+      if (best == null) {
+        if (!mounted) return;
+        await displayInfoBar(
+          context,
+          builder: (context, close) => InfoBar(
+            title: const Text('شخص مشابه پیدا نشد'),
+            content: const Text('چهره انتخاب‌شده با افراد ذخیره‌شده تطبیق کافی نداشت.'),
+            severity: InfoBarSeverity.info,
+            onClose: close,
+          ),
+        );
+        return;
+      }
+
+      _selectFacePerson(best.person.id);
+
+      if (!mounted) return;
+      await displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          title: Text('شخص پیدا شد: ${best!.person.name}'),
+          content: Text('شباهت: ${(best.similarity * 100).round()}٪'),
+          severity: InfoBarSeverity.success,
+          onClose: close,
+        ),
+      );
+    } catch (e, stackTrace) {
+      debugPrint('Face image search error: $e');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          title: const Text('خطا در جستجوی چهره'),
+          content: Text(e.toString()),
+          severity: InfoBarSeverity.error,
+          onClose: close,
+        ),
+      );
+    }
   }
 
   void _selectFacePerson(String? personId) {
@@ -256,6 +361,7 @@ class _HomePageState extends State<HomePage> {
                       onGroupSelected: (group) {
                         setState(() {
                           selectedGroup = group;
+                          _selectedFacePersonId = null;
                         });
                       },
 
@@ -301,7 +407,12 @@ class _HomePageState extends State<HomePage> {
                     child: TabView(
                       currentIndex: _rightPanelTab,
                       onChanged: (index) {
-                        setState(() => _rightPanelTab = index);
+                        setState(() {
+                          _rightPanelTab = index;
+                          if (index != 1) {
+                            _selectedFacePersonId = null;
+                          }
+                        });
                       },
                       closeButtonVisibility:
                           CloseButtonVisibilityMode.never,
@@ -326,6 +437,7 @@ class _HomePageState extends State<HomePage> {
                             onRename: _renameFacePerson,
                             onMerge: _mergeFacePersons,
                             suggestions: _faceMergeSuggestions,
+                            onSearchByImage: _searchFaceByImage,
                           ),
                         ),
                       ],
@@ -783,6 +895,7 @@ class _HomePageState extends State<HomePage> {
 
     setState(() {
       sourcePaths.add(path);
+      _selectedFacePersonId = null;
     });
 
     _ensureProject().sourcePaths = List<String>.from(sourcePaths);
@@ -792,6 +905,7 @@ class _HomePageState extends State<HomePage> {
   Future<void> removeSourceFolder(String path) async {
     setState(() {
       sourcePaths.remove(path);
+      _selectedFacePersonId = null;
     });
 
     _ensureProject().sourcePaths = List<String>.from(sourcePaths);
@@ -805,6 +919,7 @@ class _HomePageState extends State<HomePage> {
         groups = [];
         duplicateGroups = [];
         selectedGroup = null;
+        _selectedFacePersonId = null;
         progress = null;
       });
 

@@ -2,6 +2,8 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:image/image.dart' as img;
 
@@ -18,6 +20,7 @@ class FacePeoplePanel extends StatefulWidget {
     String secondaryPersonId,
   )? onMerge;
   final List<FaceMergeSuggestion> suggestions;
+  final Future<void> Function()? onSearchByImage;
 
   const FacePeoplePanel({
     super.key,
@@ -28,6 +31,7 @@ class FacePeoplePanel extends StatefulWidget {
     this.onRename,
     this.onMerge,
     this.suggestions = const [],
+    this.onSearchByImage,
   });
 
   @override
@@ -355,25 +359,41 @@ class _FacePeoplePanelState extends State<FacePeoplePanel> {
 
           const SizedBox(height: 8),
 
-          TextBox(
-            controller: _searchController,
-            placeholder: 'جستجوی نام شخص...',
-            prefix: const Padding(
-              padding: EdgeInsetsDirectional.only(start: 8),
-              child: Icon(FluentIcons.search, size: 15),
-            ),
-            suffix: _query.isEmpty
-                ? null
-                : IconButton(
-                    icon: const Icon(FluentIcons.clear, size: 12),
-                    onPressed: () {
-                      _searchController.clear();
-                      setState(() => _query = '');
-                    },
+          Row(
+            children: [
+              Expanded(
+                child: TextBox(
+                  controller: _searchController,
+                  placeholder: 'جستجوی نام شخص...',
+                  prefix: const Padding(
+                    padding: EdgeInsetsDirectional.only(start: 8),
+                    child: Icon(FluentIcons.search, size: 15),
                   ),
-            onChanged: (value) {
-              setState(() => _query = value);
-            },
+                  suffix: _query.isEmpty
+                      ? null
+                      : IconButton(
+                          icon: const Icon(FluentIcons.clear, size: 12),
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() => _query = '');
+                          },
+                        ),
+                  onChanged: (value) {
+                    setState(() => _query = value);
+                  },
+                ),
+              ),
+              if (widget.onSearchByImage != null) ...[
+                const SizedBox(width: 8),
+                Tooltip(
+                  message: 'جستجو با عکس چهره',
+                  child: Button(
+                    onPressed: widget.onSearchByImage,
+                    child: const Icon(FluentIcons.camera, size: 16),
+                  ),
+                ),
+              ],
+            ],
           ),
 
           if (widget.suggestions.isNotEmpty) ...[
@@ -719,27 +739,91 @@ class _SuggestionRow extends StatelessWidget {
 // free after its first decode.
 // ---------------------------------------------------------------------------
 
+Future<Uint8List?> _createFaceCropIsolate(Map<String, dynamic> data) async {
+  final path = data['path']?.toString() ?? '';
+  if (path.isEmpty) return null;
+
+  final file = File(path);
+  if (!await file.exists()) return null;
+
+  try {
+    final bytes = await file.readAsBytes();
+    final decoded = img.decodeImage(bytes);
+    if (decoded == null) return null;
+
+    final leftValue = (data['left'] as num?)?.toDouble() ?? 0;
+    final topValue = (data['top'] as num?)?.toDouble() ?? 0;
+    final widthValue = (data['width'] as num?)?.toDouble() ?? 0;
+    final heightValue = (data['height'] as num?)?.toDouble() ?? 0;
+
+    final largest = math.max(decoded.width, decoded.height);
+    final analysisScale = largest > 1600 ? largest / 1600.0 : 1.0;
+
+    final left = leftValue * analysisScale;
+    final top = topValue * analysisScale;
+    final width = widthValue * analysisScale;
+    final height = heightValue * analysisScale;
+    final padding = math.max(width, height) * 0.35;
+
+    final cropLeft = math.max(0, (left - padding).round());
+    final cropTop = math.max(0, (top - padding).round());
+    final cropRight = math.min(decoded.width, (left + width + padding).round());
+    final cropBottom = math.min(decoded.height, (top + height + padding).round());
+
+    final cropWidth = math.max(1, cropRight - cropLeft);
+    final cropHeight = math.max(1, cropBottom - cropTop);
+
+    final cropped = img.copyCrop(
+      decoded,
+      x: cropLeft,
+      y: cropTop,
+      width: cropWidth,
+      height: cropHeight,
+    );
+
+    final resized = img.copyResize(
+      cropped,
+      width: 160,
+      height: 160,
+      interpolation: img.Interpolation.average,
+    );
+
+    return Uint8List.fromList(img.encodeJpg(resized, quality: 84));
+  } catch (_) {
+    return null;
+  }
+}
+
 class _FaceCropCache {
   static final Map<String, Future<Uint8List?>> _cache =
       <String, Future<Uint8List?>>{};
-
   static final List<String> _order = <String>[];
-
   static const int _maxEntries = 300;
 
   static Future<Uint8List?> get(
     StoredFace face,
     List<String> sourceRoots,
   ) {
-    final key =
-        '${face.id}|${face.rootKey}|${face.relativePath}';
-
+    final key = '${face.id}|${face.rootKey}|${face.relativePath}';
     final existing = _cache[key];
-    if (existing != null) {
-      return existing;
-    }
+    if (existing != null) return existing;
 
-    final future = _create(face, sourceRoots);
+    final path = const FaceDatabaseService().resolveStoredPath(
+      face,
+      sourceRoots,
+    );
+
+    final future = compute(
+      _createFaceCropIsolate,
+      <String, dynamic>{
+        'path': path,
+        'left': face.left,
+        'top': face.top,
+        'width': face.width,
+        'height': face.height,
+      },
+    );
+
     _cache[key] = future;
     _order.add(key);
 
@@ -749,75 +833,6 @@ class _FaceCropCache {
     }
 
     return future;
-  }
-
-  static Future<Uint8List?> _create(
-    StoredFace face,
-    List<String> sourceRoots,
-  ) async {
-    final path = const FaceDatabaseService().resolveStoredPath(
-      face,
-      sourceRoots,
-    );
-
-    final file = File(path);
-    if (!await file.exists()) return null;
-
-    try {
-      final bytes = await file.readAsBytes();
-      final decoded = img.decodeImage(bytes);
-      if (decoded == null) return null;
-
-      final largest =
-          math.max(decoded.width, decoded.height);
-
-      final analysisScale =
-          largest > 1600 ? largest / 1600.0 : 1.0;
-
-      final left = face.left * analysisScale;
-      final top = face.top * analysisScale;
-      final width = face.width * analysisScale;
-      final height = face.height * analysisScale;
-
-      final padding =
-          math.max(width, height) * 0.35;
-
-      final cropLeft =
-          math.max(0, (left - padding).round());
-      final cropTop =
-          math.max(0, (top - padding).round());
-      final cropRight =
-          math.min(
-            decoded.width,
-            (left + width + padding).round(),
-          );
-      final cropBottom =
-          math.min(
-            decoded.height,
-            (top + height + padding).round(),
-          );
-
-      final cropped = img.copyCrop(
-        decoded,
-        x: cropLeft,
-        y: cropTop,
-        width: math.max(1, cropRight - cropLeft),
-        height: math.max(1, cropBottom - cropTop),
-      );
-
-      final resized = img.copyResize(
-        cropped,
-        width: 160,
-        height: 160,
-        interpolation: img.Interpolation.average,
-      );
-
-      return Uint8List.fromList(
-        img.encodeJpg(resized, quality: 86),
-      );
-    } catch (_) {
-      return null;
-    }
   }
 }
 
