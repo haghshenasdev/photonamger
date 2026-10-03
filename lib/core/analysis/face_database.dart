@@ -735,25 +735,45 @@ class FaceDatabaseService {
           database.persons.add(copied);
           personsById[id] = copied;
           changed = true;
-        } else if (importedPerson.updatedAt.isAfter(existing.updatedAt)) {
-          final newName = importedPerson.name.trim();
+        } else {
+          final importedName = importedPerson.name.trim();
+          final existingName = existing.name.trim();
 
-          if (newName.isNotEmpty && newName != existing.name) {
-            existing.name = newName;
+          // A portable archive is the authoritative source for the person's
+          // display name. In particular, never let a locally-created generic
+          // name such as `شخص 1` hide a real name carried by the archive.
+          final importedHasRealName =
+              importedName.isNotEmpty && !_isGenericPersonName(importedName);
+          final existingHasGenericName =
+              existingName.isEmpty || _isGenericPersonName(existingName);
+
+          final newer = importedPerson.updatedAt.isAfter(existing.updatedAt);
+
+          if (importedHasRealName &&
+              (existingHasGenericName || newer) &&
+              importedName != existingName) {
+            existing.name = importedName;
+            changed = true;
+          } else if (existingName.isEmpty && importedName.isNotEmpty) {
+            existing.name = importedName;
+            changed = true;
           }
 
           if (importedPerson.coverRootKey != null &&
-              importedPerson.coverRootKey!.trim().isNotEmpty) {
+              importedPerson.coverRootKey!.trim().isNotEmpty &&
+              (newer || existingHasGenericName)) {
             existing.coverRootKey = importedPerson.coverRootKey;
           }
 
           if (importedPerson.coverRelativePath != null &&
-              importedPerson.coverRelativePath!.trim().isNotEmpty) {
+              importedPerson.coverRelativePath!.trim().isNotEmpty &&
+              (newer || existingHasGenericName)) {
             existing.coverRelativePath = importedPerson.coverRelativePath;
           }
 
-          existing.updatedAt = importedPerson.updatedAt;
-          changed = true;
+          if (newer) {
+            existing.updatedAt = importedPerson.updatedAt;
+          }
         }
       }
 
@@ -2098,6 +2118,13 @@ class FaceDatabaseService {
     }
 
     return 0;
+  }
+
+  static bool _isGenericPersonName(String value) {
+    final name = value.trim();
+    if (name.isEmpty) return true;
+    if (name == 'شخص') return true;
+    return RegExp(r'^شخص\s+\d+$').hasMatch(name);
   }
 
   FacePerson _createPerson(FaceDatabase db) {
