@@ -257,6 +257,7 @@ class TransferService {
     required List<DuplicateGroup> duplicateGroups,
     required ApplySettings settings,
     required List<ProjectOperation> operations,
+    required List<String> sourceRoots,
     void Function(TransferProgress progress)? onProgress,
     void Function(TransferResult result)? onItemTransferred,
     void Function(ProjectOperation operation)? onOperationChanged,
@@ -265,6 +266,27 @@ class TransferService {
   }) async {
     final selectedDuplicateFiles = <String>{};
     final duplicateFiles = <String>{};
+
+    // Import portable analysis archives from the source folders before the
+    // transfer. This is important when the current project database does not
+    // yet contain faces but the source folder already has .archino_faces.json.
+    if (faceDatabaseDirectory != null &&
+        faceDatabaseDirectory.trim().isNotEmpty &&
+        sourceRoots.isNotEmpty) {
+      try {
+        final faceService = const FaceDatabaseService();
+        final db = await faceService.load(faceDatabaseDirectory);
+        final changed = await faceService.importPortableArchives(
+          sourceRoots: sourceRoots,
+          database: db,
+        );
+        if (changed) {
+          await faceService.save(faceDatabaseDirectory, db);
+        }
+      } catch (_) {
+        // Portable analysis is supplementary; transfer itself must continue.
+      }
+    }
 
     for (final group in duplicateGroups) {
       // تمام عکس‌هایی که کاربر انتخاب کرده باید حفظ شوند.

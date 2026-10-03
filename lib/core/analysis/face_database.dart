@@ -864,22 +864,11 @@ class FaceDatabaseService {
     final groupedFaces = <String, List<StoredFace>>{};
     final groupedRejections = <String, List<FaceRejection>>{};
 
-    // First use stored faces to locate normal face records.
-    for (final face in database.faces) {
-      if (_isRejected(database, face.fingerprint, face.personId)) {
-        continue;
-      }
-
-      final path = resolveStoredPath(face, sourceRoots);
-      final file = File(path);
-      if (!await file.exists()) continue;
-
-      final directory = p.dirname(path);
-      groupedFaces.putIfAbsent(directory, () => <StoredFace>[]).add(face);
-    }
-
-    // Rejections do not have a StoredFace anymore, so use the currently
-    // scanned MediaItems to locate their physical folder by fingerprint.
+    // IMPORTANT:
+    // After Apply, MediaItem.path points to the destination folder, while
+    // StoredFace.rootKey/relativePath may still point to the old source root.
+    // Therefore the current file fingerprint must be the first source of
+    // truth for deciding which destination folder receives the archive.
     final itemDirectoryByFingerprint = <String, String>{};
 
     for (final item in items) {
@@ -891,7 +880,52 @@ class FaceDatabaseService {
       itemDirectoryByFingerprint[fingerprint] = p.dirname(item.path);
     }
 
-    // Also recover the directory from any historical face with the same
+    // First use the current MediaItem location. This survives Copy/Move and
+    // also works when the source root was changed.
+    for (final face in database.faces) {
+      if (_isRejected(database, face.fingerprint, face.personId)) {
+        continue;
+      }
+
+      String? path = itemDirectoryByFingerprint[face.fingerprint];
+
+      if (path != null) {
+        final file = File(p.join(path, p.basename(face.relativePath)));
+        if (await file.exists()) {
+          groupedFaces
+              .putIfAbsent(path, () => <StoredFace>[])
+              .add(face);
+          continue;
+        }
+
+        // The file name can also have received a collision suffix during
+        // Apply. Find the current item with the same fingerprint instead.
+        for (final item in items) {
+          if (item.isVideo) continue;
+          final currentFingerprint = await fingerprintOf(item.path);
+          if (currentFingerprint == face.fingerprint) {
+            final directory = p.dirname(item.path);
+            groupedFaces
+                .putIfAbsent(directory, () => <StoredFace>[])
+                .add(face);
+            path = directory;
+            break;
+          }
+        }
+
+        if (path != null) continue;
+      }
+
+      // Fallback for old databases whose current MediaItem is unavailable.
+      final storedPath = resolveStoredPath(face, sourceRoots);
+      final storedFile = File(storedPath);
+      if (!await storedFile.exists()) continue;
+
+      final directory = p.dirname(storedPath);
+      groupedFaces.putIfAbsent(directory, () => <StoredFace>[]).add(face);
+    }
+
+    // Rejections do not have a StoredFace anymore, so use the currently
     // fingerprint. This helps when the caller did not pass that MediaItem.
     for (final rejection in database.rejections) {
       String? directory = itemDirectoryByFingerprint[rejection.fingerprint];

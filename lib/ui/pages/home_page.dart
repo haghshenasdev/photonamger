@@ -810,6 +810,7 @@ class _HomePageState extends State<HomePage> {
                           duplicateGroups: duplicateGroups,
                           settings: settings,
                           operations: project.operations,
+                          sourceRoots: sourcePaths,
                           faceDatabaseDirectory: _getFaceDatabaseDirectory(),
                           onItemTransferred: (result) {
                             if (!mounted) return;
@@ -1402,7 +1403,9 @@ class _HomePageState extends State<HomePage> {
       await engine.detectFaces(
         sourceRoots: sourcePaths,
         databaseDirectory: _getFaceDatabaseDirectory(),
-        forceRescan: true,
+        // تحلیل عادی باید همیشه از cache/portable archive استفاده کند.
+        // برای بازتحلیل اجباری می‌توان بعداً یک فرمان جداگانه اضافه کرد.
+        forceRescan: false,
         callback: (p) {
           if (!mounted) return;
           setState(() => progress = p);
@@ -2138,6 +2141,7 @@ class _HomePageState extends State<HomePage> {
           duplicateGroups: duplicateGroups,
           settings: settings,
           operations: project.operations,
+          sourceRoots: sourcePaths,
           faceDatabaseDirectory: _getFaceDatabaseDirectory(),
           saveMetadata: false,
           onItemTransferred: (result) {
