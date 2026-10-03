@@ -844,7 +844,9 @@ class FaceDatabaseService {
         final fingerprint = importedFace.fingerprint.trim();
         final personId = importedFace.personId.trim();
 
-        if (fingerprint.isEmpty || fingerprint == 'missing' || personId.isEmpty) {
+        if (fingerprint.isEmpty ||
+            fingerprint == 'missing' ||
+            personId.isEmpty) {
           continue;
         }
 
@@ -852,10 +854,7 @@ class FaceDatabaseService {
         // no persons. Create a stable placeholder instead of silently
         // throwing the face away.
         if (!personsById.containsKey(personId)) {
-          final placeholder = FacePerson(
-            id: personId,
-            name: 'شخص',
-          );
+          final placeholder = FacePerson(id: personId, name: 'شخص');
           database.persons.add(placeholder);
           personsById[personId] = placeholder;
           changed = true;
@@ -999,13 +998,15 @@ class FaceDatabaseService {
 
       itemPathByFingerprint[fingerprint] = item.path;
 
-      groupedScans.putIfAbsent(directory, () => <FaceScan>[]).add(
-        FaceScan(
-          rootKey: rootKey,
-          relativePath: relativePath,
-          fingerprint: fingerprint,
-        ),
-      );
+      groupedScans
+          .putIfAbsent(directory, () => <FaceScan>[])
+          .add(
+            FaceScan(
+              rootKey: rootKey,
+              relativePath: relativePath,
+              fingerprint: fingerprint,
+            ),
+          );
 
       // IMPORTANT: export the faces currently attached to the MediaItem.
       // This is what makes Apply portable even before a project reload.
@@ -1120,13 +1121,15 @@ class FaceDatabaseService {
       if (currentItemPath == null) continue;
 
       final directory = p.dirname(currentItemPath);
-      groupedRejections.putIfAbsent(directory, () => <FaceRejection>[]).add(
-        FaceRejection(
-          fingerprint: rejection.fingerprint,
-          personId: rejection.personId,
-          createdAt: rejection.createdAt,
-        ),
-      );
+      groupedRejections
+          .putIfAbsent(directory, () => <FaceRejection>[])
+          .add(
+            FaceRejection(
+              fingerprint: rejection.fingerprint,
+              personId: rejection.personId,
+              createdAt: rejection.createdAt,
+            ),
+          );
     }
 
     final directories = <String>{
@@ -1228,9 +1231,7 @@ class FaceDatabaseService {
   }
 
   double _faceScore(StoredFace face) {
-    final area = math.sqrt(
-      math.max(1.0, face.width * face.height),
-    );
+    final area = math.sqrt(math.max(1.0, face.width * face.height));
     final sizeScore = (area / 180.0).clamp(0.0, 1.0);
     return face.confidence * 0.65 + sizeScore * 0.35;
   }
