@@ -311,6 +311,76 @@ class FaceDatabaseService {
 
   File fileFor(String baseDirectory) => File(p.join(baseDirectory, fileName));
 
+  /// The portable archive belongs to the folder that contains the images,
+  /// exactly like MetadataService.fileForDirectory().
+  File portableFileForDirectory(String directoryPath) {
+    return File(Directory(directoryPath).uri.resolve(fileName).toFilePath());
+  }
+
+  Future<bool> portableExists(String directoryPath) {
+    return portableFileForDirectory(directoryPath).exists();
+  }
+
+  /// Reads the portable archive directly from one image directory.
+  ///
+  /// This intentionally does NOT use the application's central database
+  /// recovery files (.bak/.tmp). The folder archive is the portable metadata
+  /// belonging to that folder, just like .photonamger.json.
+  Future<FaceDatabase?> loadPortableArchive(String directoryPath) async {
+    final file = portableFileForDirectory(directoryPath);
+
+    if (!await file.exists()) {
+      return null;
+    }
+
+    try {
+      final content = await file.readAsString();
+
+      if (content.trim().isEmpty) {
+        return null;
+      }
+
+      final decoded = jsonDecode(content);
+
+      if (decoded is! Map) {
+        return null;
+      }
+
+      final raw = Map<String, dynamic>.from(decoded);
+
+      if (raw['archive'] != true) {
+        return null;
+      }
+
+      return FaceDatabase.fromJson(raw);
+    } catch (_) {
+      // A damaged portable metadata file must not stop folder scanning.
+      return null;
+    }
+  }
+
+  /// Saves the portable archive directly inside its owning folder.
+  ///
+  /// This mirrors MetadataService.save(): create the directory if necessary
+  /// and write the JSON file there. No central DB path is involved.
+  Future<void> savePortableArchive({
+    required String directoryPath,
+    required FaceDatabase archive,
+  }) async {
+    final directory = Directory(directoryPath);
+    await directory.create(recursive: true);
+
+    final file = portableFileForDirectory(directoryPath);
+
+    final json = archive.toJson()..['archive'] = true;
+
+    await file.writeAsString(
+      const JsonEncoder.withIndent('  ').convert(json),
+      encoding: utf8,
+      flush: true,
+    );
+  }
+
   Future<FaceDatabase> load(String baseDirectory) async {
     final file = fileFor(baseDirectory);
 
@@ -443,14 +513,23 @@ class FaceDatabaseService {
         continue;
       }
 
-      final location = _locate(item.path, sourceRoots);
+      // Normally the item is under one of sourceRoots.  After an Apply,
+      // however, the selected destination folder can be a new root.  Since
+      // .archino_faces.json belongs to the current image directory, the
+      // current file path is a valid fallback location.
+      final location =
+          _locate(item.path, sourceRoots) ??
+          _FaceLocation(
+            rootKey: _rootKey(p.dirname(item.path)),
+            relativePath: p.basename(item.path),
+          );
 
-      if (location == null) {
+      final fingerprint = await fingerprintOf(item.path);
+
+      if (fingerprint == 'missing') {
         pending.add(item);
         continue;
       }
-
-      final fingerprint = await fingerprintOf(item.path);
 
       final normalizedRelative = _normRelative(location.relativePath);
 
@@ -553,7 +632,9 @@ class FaceDatabaseService {
     required FaceDatabase database,
     List<MediaItem>? currentItems,
   }) async {
-    if (sourceRoots.isEmpty) return false;
+    if (sourceRoots.isEmpty && (currentItems == null || currentItems.isEmpty)) {
+      return false;
+    }
 
     var changed = false;
 
@@ -562,9 +643,6 @@ class FaceDatabaseService {
         if (person.id.trim().isNotEmpty) person.id: person,
     };
 
-    // A single image may contain multiple faces. Therefore a fingerprint
-    // alone is NOT a unique face key. Keep personId in the key so all faces
-    // from a portable archive can be restored.
     final knownFaceKeys = <String>{
       for (final face in database.faces)
         if (face.fingerprint.trim().isNotEmpty &&
@@ -573,9 +651,6 @@ class FaceDatabaseService {
           '${face.fingerprint}|${face.personId}',
     };
 
-    // Current files are the source of truth after Apply.  Build a fingerprint
-    // index once so an archived face can be attached to the current path even
-    // when the old root/relativePath no longer exists.
     final currentItemByFingerprint = <String, MediaItem>{};
 
     if (currentItems != null) {
@@ -583,305 +658,227 @@ class FaceDatabaseService {
         if (item.isVideo) continue;
 
         final fingerprint = await fingerprintOf(item.path);
-
         if (fingerprint == 'missing') continue;
 
         currentItemByFingerprint[fingerprint] = item;
       }
     }
 
-    final processedManifests = <String>{};
+    // First look exactly where .photonamger.json lives: beside every current
+    // image. This is the authoritative portable location after Apply.
+    final manifestDirectories = <String>{};
 
-    for (final sourceRoot in sourceRoots) {
-      final rootDirectory = Directory(sourceRoot);
-
-      if (!await rootDirectory.exists()) {
-        continue;
+    if (currentItems != null) {
+      for (final item in currentItems) {
+        if (item.isVideo) continue;
+        final directory = p.dirname(item.path).trim();
+        if (directory.isNotEmpty) {
+          manifestDirectories.add(p.normalize(p.absolute(directory)));
+        }
       }
+    }
+
+    // Keep recursive source-root discovery for old projects and for callers
+    // that import archives before MediaItems have been created.
+    for (final root in sourceRoots) {
+      final value = root.trim();
+      if (value.isEmpty) continue;
+      final normalized = p.normalize(p.absolute(value));
+      if (await File(p.join(normalized, fileName)).exists()) {
+        manifestDirectories.add(normalized);
+      }
+
+      final rootDirectory = Directory(normalized);
+      if (!await rootDirectory.exists()) continue;
 
       try {
         await for (final entity in rootDirectory.list(
           recursive: true,
           followLinks: false,
         )) {
-          if (entity is! File || p.basename(entity.path) != fileName) {
-            continue;
-          }
-
-          final manifestPath = p.normalize(entity.path);
-
-          if (!processedManifests.add(manifestPath)) {
-            continue;
-          }
-
-          try {
-            final decoded = jsonDecode(await entity.readAsString());
-
-            if (decoded is! Map) continue;
-
-            final raw = Map<String, dynamic>.from(decoded);
-
-            if (raw['archive'] != true) continue;
-
-            final archive = FaceDatabase.fromJson(raw);
-
-            final manifestDirectory = p.dirname(entity.path);
-
-            // ----------------------------------------------------------
-            // Persons
-            // ----------------------------------------------------------
-
-            for (final importedPerson in archive.persons) {
-              if (importedPerson.id.trim().isEmpty) {
-                continue;
-              }
-
-              final existing = personsById[importedPerson.id];
-
-              if (existing == null) {
-                final copied = FacePerson(
-                  id: importedPerson.id,
-                  name: importedPerson.name.trim().isEmpty
-                      ? 'شخص'
-                      : importedPerson.name.trim(),
-                  coverRootKey: importedPerson.coverRootKey,
-                  coverRelativePath: importedPerson.coverRelativePath,
-                  createdAt: importedPerson.createdAt,
-                  updatedAt: importedPerson.updatedAt,
-                );
-
-                database.persons.add(copied);
-                personsById[copied.id] = copied;
-                changed = true;
-              } else {
-                if (importedPerson.updatedAt.isAfter(existing.updatedAt)) {
-                  final newName = importedPerson.name.trim();
-
-                  if (newName.isNotEmpty && newName != existing.name) {
-                    existing.name = newName;
-                    changed = true;
-                  }
-
-                  if (importedPerson.coverRootKey != null &&
-                      importedPerson.coverRootKey!.trim().isNotEmpty) {
-                    existing.coverRootKey = importedPerson.coverRootKey;
-                  }
-
-                  if (importedPerson.coverRelativePath != null &&
-                      importedPerson.coverRelativePath!.trim().isNotEmpty) {
-                    existing.coverRelativePath =
-                        importedPerson.coverRelativePath;
-                  }
-
-                  existing.updatedAt = importedPerson.updatedAt;
-
-                  changed = true;
-                }
-              }
-            }
-
-            // ----------------------------------------------------------
-            // User corrections / rejected identities
-            // ----------------------------------------------------------
-
-            for (final importedRejection in archive.rejections) {
-              if (importedRejection.fingerprint.trim().isEmpty ||
-                  importedRejection.personId.trim().isEmpty) {
-                continue;
-              }
-
-              if (!personsById.containsKey(importedRejection.personId)) {
-                continue;
-              }
-
-              final exists = database.rejections.any(
-                (r) => r.key == importedRejection.key,
-              );
-
-              if (!exists) {
-                database.rejections.add(
-                  FaceRejection(
-                    fingerprint: importedRejection.fingerprint,
-                    personId: importedRejection.personId,
-                    createdAt: importedRejection.createdAt,
-                  ),
-                );
-
-                changed = true;
-              }
-
-              final before = database.faces.length;
-
-              database.faces.removeWhere(
-                (face) =>
-                    face.fingerprint == importedRejection.fingerprint &&
-                    face.personId == importedRejection.personId,
-              );
-
-              if (before != database.faces.length) {
-                changed = true;
-              }
-            }
-
-            // ----------------------------------------------------------
-            // Scan markers
-            // ----------------------------------------------------------
-
-            for (final importedScan in archive.scans) {
-              final fingerprint = importedScan.fingerprint.trim();
-
-              if (fingerprint.isEmpty || fingerprint == 'missing') {
-                continue;
-              }
-
-              if (!database.scans.any(
-                (scan) => scan.fingerprint == fingerprint,
-              )) {
-                final currentItem = currentItemByFingerprint[fingerprint];
-
-                if (currentItem != null) {
-                  final location = _locate(currentItem.path, sourceRoots);
-
-                  database.scans.add(
-                    FaceScan(
-                      rootKey:
-                          location?.rootKey ??
-                          _rootKey(p.dirname(currentItem.path)),
-                      relativePath:
-                          location?.relativePath ??
-                          p.basename(currentItem.path),
-                      fingerprint: fingerprint,
-                    ),
-                  );
-                } else {
-                  database.scans.add(
-                    FaceScan(
-                      rootKey: _rootKey(sourceRoot),
-                      relativePath: importedScan.relativePath.trim(),
-                      fingerprint: fingerprint,
-                    ),
-                  );
-                }
-
-                changed = true;
-              }
-            }
-
-            // ----------------------------------------------------------
-            // Faces
-            // ----------------------------------------------------------
-
-            for (final importedFace in archive.faces) {
-              if (importedFace.personId.trim().isEmpty) {
-                continue;
-              }
-
-              if (importedFace.fingerprint.trim().isEmpty ||
-                  importedFace.fingerprint == 'missing') {
-                continue;
-              }
-
-              if (!personsById.containsKey(importedFace.personId)) {
-                continue;
-              }
-
-              if (_isRejected(
-                database,
-                importedFace.fingerprint,
-                importedFace.personId,
-              )) {
-                continue;
-              }
-
-              final faceKey =
-                  '${importedFace.fingerprint}|${importedFace.personId}';
-
-              // Do not use fingerprint alone here. One image can contain
-              // several different people. Also, rejection processing above
-              // may have removed an old face with this fingerprint, so the
-              // old implementation could incorrectly skip the imported face.
-              if (knownFaceKeys.contains(faceKey)) {
-                continue;
-              }
-
-              // --------------------------------------------------------
-              // Resolve the archive face to the CURRENT image first.
-              //
-              // This is deliberately done before looking at the path stored
-              // inside the archive. The archive was created on another path
-              // (and possibly another computer), so rootKey/relativePath are
-              // not reliable after Apply.
-              // --------------------------------------------------------
-              final currentItem =
-                  currentItemByFingerprint[importedFace.fingerprint];
-
-              String rootKey;
-              String relativePath;
-
-              if (currentItem != null) {
-                final location = _locate(currentItem.path, sourceRoots);
-
-                if (location != null) {
-                  rootKey = location.rootKey;
-                  relativePath = location.relativePath;
-                } else {
-                  // currentItems may intentionally come from a destination
-                  // root which is not listed in sourceRoots. It is still a
-                  // valid current path and must not be discarded.
-                  rootKey = _rootKey(p.dirname(currentItem.path));
-                  relativePath = p.basename(currentItem.path);
-                }
-              } else {
-                // Backward-compatible fallback for callers that import
-                // archives without providing current MediaItems.
-                final resolved = await _resolvePortableFacePath(
-                  importedFace,
-                  sourceRoot: sourceRoot,
-                  manifestDirectory: manifestDirectory,
-                );
-
-                if (resolved != null) {
-                  final location = _locate(resolved, sourceRoots);
-
-                  if (location != null) {
-                    rootKey = location.rootKey;
-                    relativePath = location.relativePath;
-                  } else {
-                    rootKey = _rootKey(sourceRoot);
-                    relativePath = p.relative(resolved, from: sourceRoot);
-                  }
-                } else {
-                  rootKey = _rootKey(sourceRoot);
-                  relativePath = importedFace.relativePath;
-                }
-              }
-
-              final copiedFace = StoredFace(
-                id: importedFace.id.trim().isEmpty ? _newId() : importedFace.id,
-                personId: importedFace.personId,
-                rootKey: rootKey,
-                relativePath: relativePath,
-                fingerprint: importedFace.fingerprint,
-                left: importedFace.left,
-                top: importedFace.top,
-                width: importedFace.width,
-                height: importedFace.height,
-                confidence: importedFace.confidence,
-                landmarks: List<double>.from(importedFace.landmarks),
-                embedding: List<double>.from(importedFace.embedding),
-              );
-
-              database.faces.add(copiedFace);
-              knownFaceKeys.add(faceKey);
-
-              changed = true;
-            }
-          } catch (_) {
-            // Broken manifest must not abort scanning.
+          if (entity is File && p.basename(entity.path) == fileName) {
+            manifestDirectories.add(
+              p.normalize(p.absolute(p.dirname(entity.path))),
+            );
           }
         }
       } catch (_) {
-        // Inaccessible root must not abort other roots.
+        // One inaccessible branch must not prevent other manifests loading.
+      }
+    }
+
+    for (final manifestDirectory in manifestDirectories) {
+      final archive = await loadPortableArchive(manifestDirectory);
+      if (archive == null) continue;
+
+      // ------------------------------------------------------------
+      // Persons
+      // ------------------------------------------------------------
+      for (final importedPerson in archive.persons) {
+        final id = importedPerson.id.trim();
+        if (id.isEmpty) continue;
+
+        final existing = personsById[id];
+
+        if (existing == null) {
+          final copied = FacePerson(
+            id: id,
+            name: importedPerson.name.trim().isEmpty
+                ? 'شخص'
+                : importedPerson.name.trim(),
+            coverRootKey: importedPerson.coverRootKey,
+            coverRelativePath: importedPerson.coverRelativePath,
+            createdAt: importedPerson.createdAt,
+            updatedAt: importedPerson.updatedAt,
+          );
+
+          database.persons.add(copied);
+          personsById[id] = copied;
+          changed = true;
+        } else if (importedPerson.updatedAt.isAfter(existing.updatedAt)) {
+          final newName = importedPerson.name.trim();
+
+          if (newName.isNotEmpty && newName != existing.name) {
+            existing.name = newName;
+          }
+
+          if (importedPerson.coverRootKey != null &&
+              importedPerson.coverRootKey!.trim().isNotEmpty) {
+            existing.coverRootKey = importedPerson.coverRootKey;
+          }
+
+          if (importedPerson.coverRelativePath != null &&
+              importedPerson.coverRelativePath!.trim().isNotEmpty) {
+            existing.coverRelativePath = importedPerson.coverRelativePath;
+          }
+
+          existing.updatedAt = importedPerson.updatedAt;
+          changed = true;
+        }
+      }
+
+      // ------------------------------------------------------------
+      // Scan markers
+      // ------------------------------------------------------------
+      for (final importedScan in archive.scans) {
+        final fingerprint = importedScan.fingerprint.trim();
+        if (fingerprint.isEmpty || fingerprint == 'missing') continue;
+
+        if (database.scans.any((scan) => scan.fingerprint == fingerprint)) {
+          continue;
+        }
+
+        final currentItem = currentItemByFingerprint[fingerprint];
+
+        database.scans.add(
+          FaceScan(
+            rootKey: currentItem == null
+                ? _rootKey(manifestDirectory)
+                : _rootKey(p.dirname(currentItem.path)),
+            relativePath: currentItem == null
+                ? importedScan.relativePath.trim()
+                : p.basename(currentItem.path),
+            fingerprint: fingerprint,
+          ),
+        );
+        changed = true;
+      }
+
+      // ------------------------------------------------------------
+      // Rejections
+      // ------------------------------------------------------------
+      for (final importedRejection in archive.rejections) {
+        final fingerprint = importedRejection.fingerprint.trim();
+        final personId = importedRejection.personId.trim();
+
+        if (fingerprint.isEmpty || personId.isEmpty) continue;
+        if (!personsById.containsKey(personId)) continue;
+
+        final exists = database.rejections.any(
+          (r) => r.key == '$fingerprint|$personId',
+        );
+
+        if (!exists) {
+          database.rejections.add(
+            FaceRejection(
+              fingerprint: fingerprint,
+              personId: personId,
+              createdAt: importedRejection.createdAt,
+            ),
+          );
+          changed = true;
+        }
+
+        final before = database.faces.length;
+        database.faces.removeWhere(
+          (face) =>
+              face.fingerprint == fingerprint && face.personId == personId,
+        );
+        if (before != database.faces.length) changed = true;
+      }
+
+      // ------------------------------------------------------------
+      // Faces
+      // ------------------------------------------------------------
+      for (final importedFace in archive.faces) {
+        final fingerprint = importedFace.fingerprint.trim();
+        final personId = importedFace.personId.trim();
+
+        if (fingerprint.isEmpty || fingerprint == 'missing' || personId.isEmpty) {
+          continue;
+        }
+
+        // A portable archive created by an older build may contain faces but
+        // no persons. Create a stable placeholder instead of silently
+        // throwing the face away.
+        if (!personsById.containsKey(personId)) {
+          final placeholder = FacePerson(
+            id: personId,
+            name: 'شخص',
+          );
+          database.persons.add(placeholder);
+          personsById[personId] = placeholder;
+          changed = true;
+        }
+
+        if (_isRejected(database, fingerprint, personId)) continue;
+
+        final faceKey = '$fingerprint|$personId';
+        if (knownFaceKeys.contains(faceKey)) {
+          continue;
+        }
+
+        final currentItem = currentItemByFingerprint[fingerprint];
+
+        final copiedFace = _copyStoredFace(
+          importedFace,
+          rootKey: currentItem == null
+              ? _rootKey(manifestDirectory)
+              : _rootKey(p.dirname(currentItem.path)),
+          relativePath: currentItem == null
+              ? _normRelative(importedFace.relativePath)
+              : p.basename(currentItem.path),
+        );
+
+        database.faces.add(copiedFace);
+        knownFaceKeys.add(faceKey);
+        changed = true;
+
+        // Keep the person cover portable and tied to the current destination
+        // path rather than the old machine/path.
+        if (currentItem != null) {
+          final person = personsById[personId];
+          if (person != null) {
+            final score = _faceScore(copiedFace);
+            final currentCover = _coverScoreForPerson(database, personId);
+            if (person.coverRelativePath == null || score >= currentCover) {
+              person.coverRootKey = copiedFace.rootKey;
+              person.coverRelativePath = copiedFace.relativePath;
+              person.updatedAt = DateTime.now();
+              changed = true;
+            }
+          }
+        }
       }
     }
 
@@ -942,139 +939,157 @@ class FaceDatabaseService {
     required List<String> sourceRoots,
     required List<MediaItem> items,
   }) async {
-    if (sourceRoots.isEmpty) return;
+    if (items.isEmpty && sourceRoots.isEmpty) return;
 
     final database = await load(databaseDirectory);
 
     final personsById = <String, FacePerson>{
-      for (final person in database.persons) person.id: person,
+      for (final person in database.persons)
+        if (person.id.trim().isNotEmpty) person.id: person,
     };
 
     final groupedFaces = <String, List<StoredFace>>{};
-
     final groupedRejections = <String, List<FaceRejection>>{};
-
     final groupedScans = <String, List<FaceScan>>{};
 
-    // IMPORTANT:
-    //
-    // After Apply, MediaItem.path points to the destination folder.
-    // StoredFace.rootKey/relativePath may still point to the old source.
-    //
-    // Therefore the current file fingerprint is the source of truth.
-    //
-    // We keep the COMPLETE current path, not only the directory.
-    // This fixes the old "item" scope bug and also allows collision
-    // suffixes generated during Apply to be handled correctly.
+    final exportedFaceKeys = <String>{};
     final itemPathByFingerprint = <String, String>{};
 
+    // ------------------------------------------------------------
+    // Current MediaItems are the first source of truth.
+    //
+    // During Apply these objects still contain the FaceInfo results produced
+    // by the analysis, while their path has already been changed to the
+    // destination path. Exporting these objects avoids losing faces merely
+    // because the central DB and the destination path have not been rebound
+    // yet.
+    // ------------------------------------------------------------
     for (final item in items) {
       if (item.isVideo) continue;
 
-      final fingerprint = await fingerprintOf(item.path);
+      final file = File(item.path);
+      if (!await file.exists()) continue;
 
-      if (fingerprint == 'missing') {
-        continue;
-      }
+      final fingerprint = await fingerprintOf(item.path);
+      if (fingerprint == 'missing') continue;
+
+      final directory = p.dirname(item.path);
+      final rootKey = _rootKey(directory);
+      final relativePath = p.basename(item.path);
 
       itemPathByFingerprint[fingerprint] = item.path;
 
-      final directory = p.dirname(item.path);
+      groupedScans.putIfAbsent(directory, () => <FaceScan>[]).add(
+        FaceScan(
+          rootKey: rootKey,
+          relativePath: relativePath,
+          fingerprint: fingerprint,
+        ),
+      );
 
-      groupedScans
-          .putIfAbsent(directory, () => <FaceScan>[])
-          .add(
-            FaceScan(
-              rootKey: _rootKey(directory),
-              relativePath: p.basename(item.path),
-              fingerprint: fingerprint,
-            ),
-          );
+      // IMPORTANT: export the faces currently attached to the MediaItem.
+      // This is what makes Apply portable even before a project reload.
+      for (final info in item.faces) {
+        final personId = info.personId?.trim() ?? '';
+        if (personId.isEmpty || info.embedding.length < 8) continue;
+
+        // MediaItem.faces is the authoritative result during Apply. Never
+        // discard a detected face just because the central person list was
+        // loaded from another project location.
+        personsById.putIfAbsent(
+          personId,
+          () => FacePerson(id: personId, name: 'شخص'),
+        );
+
+        final key = '$fingerprint|$personId';
+        if (exportedFaceKeys.contains(key)) continue;
+        if (_isRejected(database, fingerprint, personId)) continue;
+
+        final stored = StoredFace(
+          id: _newId(),
+          personId: personId,
+          rootKey: rootKey,
+          relativePath: relativePath,
+          fingerprint: fingerprint,
+          left: info.left,
+          top: info.top,
+          width: info.width,
+          height: info.height,
+          confidence: info.confidence,
+          landmarks: List<double>.from(info.landmarks),
+          embedding: List<double>.from(info.embedding),
+        );
+
+        groupedFaces.putIfAbsent(directory, () => <StoredFace>[]).add(stored);
+        exportedFaceKeys.add(key);
+      }
     }
 
     // ------------------------------------------------------------
-    // Faces
+    // Fallback to the central DB.
+    //
+    // This covers Apply after a project reload, when MediaItem.faces is empty
+    // but the central face database already contains the analysis.
     // ------------------------------------------------------------
-
     for (final face in database.faces) {
-      if (_isRejected(database, face.fingerprint, face.personId)) {
+      final fingerprint = face.fingerprint.trim();
+      final personId = face.personId.trim();
+
+      if (fingerprint.isEmpty || fingerprint == 'missing' || personId.isEmpty) {
         continue;
       }
+      if (_isRejected(database, fingerprint, personId)) continue;
 
-      final currentItemPath = itemPathByFingerprint[face.fingerprint];
+      // Preserve the face even if the central persons list is temporarily
+      // missing this person. The person record is reconstructed below.
+      personsById.putIfAbsent(
+        personId,
+        () => FacePerson(id: personId, name: 'شخص'),
+      );
 
-      // The current MediaItem is the preferred source.
-      //
-      // This is the important fix:
-      //
-      // OLD:
-      //   relativePath: p.basename(item.path)
-      //
-      // "item" was out of scope here.
-      //
-      // NEW:
-      //   relativePath: p.basename(currentItemPath)
-      //
-      // The current item is also the correct item when Apply renamed
-      // the destination because of a filename collision.
+      final key = '$fingerprint|$personId';
+      if (exportedFaceKeys.contains(key)) continue;
+
+      final currentItemPath = itemPathByFingerprint[fingerprint];
       if (currentItemPath != null) {
-        final currentDirectory = p.dirname(currentItemPath);
+        final directory = p.dirname(currentItemPath);
+        final copied = _copyStoredFace(
+          face,
+          rootKey: _rootKey(directory),
+          relativePath: p.basename(currentItemPath),
+        );
 
-        groupedFaces
-            .putIfAbsent(currentDirectory, () => <StoredFace>[])
-            .add(
-              _copyStoredFace(
-                face,
-                rootKey: _rootKey(currentDirectory),
-                relativePath: p.basename(currentItemPath),
-              ),
-            );
-
+        groupedFaces.putIfAbsent(directory, () => <StoredFace>[]).add(copied);
+        exportedFaceKeys.add(key);
         continue;
       }
 
-      // ----------------------------------------------------------
-      // Fallback for old databases whose current MediaItem is
-      // unavailable.
-      // ----------------------------------------------------------
-
+      // Last-resort compatibility for callers that provide source roots but
+      // no current MediaItem for an old DB entry.
       final storedPath = resolveStoredPath(face, sourceRoots);
-
-      final storedFile = File(storedPath);
-
-      if (!await storedFile.exists()) {
-        continue;
-      }
+      if (!await File(storedPath).exists()) continue;
 
       final directory = p.dirname(storedPath);
+      final copied = _copyStoredFace(
+        face,
+        rootKey: _rootKey(directory),
+        relativePath: p.basename(storedPath),
+      );
 
-      groupedFaces
-          .putIfAbsent(directory, () => <StoredFace>[])
-          .add(
-            _copyStoredFace(
-              face,
-              rootKey: _rootKey(directory),
-              relativePath: p.basename(storedPath),
-            ),
-          );
+      groupedFaces.putIfAbsent(directory, () => <StoredFace>[]).add(copied);
+      exportedFaceKeys.add(key);
     }
 
     // ------------------------------------------------------------
     // Rejections
     // ------------------------------------------------------------
-
     for (final rejection in database.rejections) {
-      String? currentItemPath = itemPathByFingerprint[rejection.fingerprint];
+      var currentItemPath = itemPathByFingerprint[rejection.fingerprint];
 
       if (currentItemPath == null) {
-        // Fallback to a stored face with the same fingerprint.
         for (final face in database.faces) {
-          if (face.fingerprint != rejection.fingerprint) {
-            continue;
-          }
-
+          if (face.fingerprint != rejection.fingerprint) continue;
           final path = resolveStoredPath(face, sourceRoots);
-
           if (await File(path).exists()) {
             currentItemPath = path;
             break;
@@ -1082,21 +1097,17 @@ class FaceDatabaseService {
         }
       }
 
-      if (currentItemPath == null) {
-        continue;
-      }
+      if (currentItemPath == null) continue;
 
       final directory = p.dirname(currentItemPath);
-
-      groupedRejections
-          .putIfAbsent(directory, () => <FaceRejection>[])
-          .add(rejection);
+      groupedRejections.putIfAbsent(directory, () => <FaceRejection>[]).add(
+        FaceRejection(
+          fingerprint: rejection.fingerprint,
+          personId: rejection.personId,
+          createdAt: rejection.createdAt,
+        ),
+      );
     }
-
-    // ------------------------------------------------------------
-    // Create an archive for EVERY directory represented by the
-    // current items, scans, faces or rejections.
-    // ------------------------------------------------------------
 
     final directories = <String>{
       ...groupedScans.keys,
@@ -1106,30 +1117,42 @@ class FaceDatabaseService {
 
     for (final directory in directories) {
       final archiveFaces = groupedFaces[directory] ?? const <StoredFace>[];
-
       final archiveRejections =
           groupedRejections[directory] ?? const <FaceRejection>[];
-
       final archiveScans = groupedScans[directory] ?? const <FaceScan>[];
 
+      // A person belongs to this folder if at least one of its faces or
+      // rejections is represented there. This keeps the archive self-contained.
       final personIds = <String>{
-        ...archiveFaces.map((e) => e.personId),
-        ...archiveRejections.map((e) => e.personId),
-      };
+        ...archiveFaces.map((face) => face.personId.trim()),
+        ...archiveRejections.map((rejection) => rejection.personId.trim()),
+      }..removeWhere((id) => id.isEmpty);
 
       final archivePersons = <FacePerson>[];
 
       for (final personId in personIds) {
-        final person = personsById[personId];
+        final person = personsById.putIfAbsent(
+          personId,
+          () => FacePerson(id: personId, name: 'شخص'),
+        );
 
-        if (person == null) continue;
+        // Prefer a cover face from this archive so the portable person record
+        // does not point back to an old machine.
+        StoredFace? bestFace;
+        for (final face in archiveFaces) {
+          if (face.personId != personId) continue;
+          if (bestFace == null || _faceScore(face) > _faceScore(bestFace)) {
+            bestFace = face;
+          }
+        }
 
         archivePersons.add(
           FacePerson(
             id: person.id,
             name: person.name,
-            coverRootKey: person.coverRootKey,
-            coverRelativePath: person.coverRelativePath,
+            coverRootKey: bestFace?.rootKey ?? person.coverRootKey,
+            coverRelativePath:
+                bestFace?.relativePath ?? person.coverRelativePath,
             createdAt: person.createdAt,
             updatedAt: person.updatedAt,
           ),
@@ -1159,25 +1182,7 @@ class FaceDatabaseService {
             .toList(),
       )..version = 4;
 
-      final json = archive.toJson()..['archive'] = true;
-
-      final target = File(p.join(directory, fileName));
-
-      final temp = File('${target.path}.tmp');
-
-      await target.parent.create(recursive: true);
-
-      await temp.writeAsString(
-        const JsonEncoder.withIndent('  ').convert(json),
-        encoding: utf8,
-        flush: true,
-      );
-
-      if (await target.exists()) {
-        await target.delete();
-      }
-
-      await temp.rename(target.path);
+      await savePortableArchive(directoryPath: directory, archive: archive);
     }
   }
 
@@ -1200,6 +1205,14 @@ class FaceDatabaseService {
       landmarks: List<double>.from(face.landmarks),
       embedding: List<double>.from(face.embedding),
     );
+  }
+
+  double _faceScore(StoredFace face) {
+    final area = math.sqrt(
+      math.max(1.0, face.width * face.height),
+    );
+    final sizeScore = (area / 180.0).clamp(0.0, 1.0);
+    return face.confidence * 0.65 + sizeScore * 0.35;
   }
 
   bool _isRejected(FaceDatabase database, String fingerprint, String personId) {
