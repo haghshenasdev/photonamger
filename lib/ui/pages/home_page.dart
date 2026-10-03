@@ -250,9 +250,118 @@ class _HomePageState extends State<HomePage> {
       databaseDirectory: directory,
       personId: personId,
       name: name,
+      sourceRoots: sourcePaths,
     );
 
     await _loadFaceDatabase();
+  }
+
+
+  Future<void> _rejectFaceAssignment(
+    MediaItem item,
+    String personId,
+  ) async {
+    final directory =
+        _faceDatabaseDirectory ?? _getFaceDatabaseDirectory();
+
+    try {
+      await const FaceDatabaseService().rejectFaceForPerson(
+        databaseDirectory: directory,
+        imagePath: item.path,
+        personId: personId,
+        sourceRoots: sourcePaths,
+      );
+
+      // Remove only the rejected person from the in-memory item.
+      item.faces.removeWhere((face) => face.personId == personId);
+      item.faceCount = item.faces.length;
+
+      await _loadFaceDatabase();
+
+      if (!mounted) return;
+
+      setState(() {});
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          title: const Text('اصلاح تشخیص چهره'),
+          content: Text(
+            'چهره این عکس دیگر به «${_facePersonName(personId) ?? 'این شخص'}» نسبت داده نمی‌شود.',
+          ),
+          severity: InfoBarSeverity.success,
+          onClose: close,
+        ),
+      );
+
+      _scheduleProjectSave();
+    } catch (e, stackTrace) {
+      debugPrint('Reject face assignment error: $e');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          title: const Text('خطا در اصلاح تشخیص'),
+          content: Text(e.toString()),
+          severity: InfoBarSeverity.error,
+          onClose: close,
+        ),
+      );
+    }
+  }
+
+  Future<void> _clearFaceRejection(
+    MediaItem item,
+    String personId,
+  ) async {
+    final directory =
+        _faceDatabaseDirectory ?? _getFaceDatabaseDirectory();
+
+    try {
+      await const FaceDatabaseService().clearFaceRejection(
+        databaseDirectory: directory,
+        imagePath: item.path,
+        personId: personId,
+        sourceRoots: sourcePaths,
+      );
+
+      if (!mounted) return;
+
+      // The next explicit face analysis will decide the identity again.
+      await displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          title: const Text('اصلاح قبلی لغو شد'),
+          content: const Text(
+            'این محدودیت حذف شد. برای تشخیص دوباره، «آنالیز چهره» را اجرا کنید.',
+          ),
+          severity: InfoBarSeverity.info,
+          onClose: close,
+        ),
+      );
+
+      await _loadFaceDatabase();
+      setState(() {});
+      _scheduleProjectSave();
+    } catch (e, stackTrace) {
+      debugPrint('Clear face rejection error: $e');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          title: const Text('خطا در لغو اصلاح'),
+          content: Text(e.toString()),
+          severity: InfoBarSeverity.error,
+          onClose: close,
+        ),
+      );
+    }
   }
 
   Future<void> _mergeFacePersons(
@@ -275,6 +384,7 @@ class _HomePageState extends State<HomePage> {
         databaseDirectory: directory,
         primaryPersonId: primaryPersonId,
         secondaryPersonId: secondaryPersonId,
+        sourceRoots: sourcePaths,
       );
 
       if (!mounted) return;
@@ -583,6 +693,9 @@ class _HomePageState extends State<HomePage> {
                       selectedPersonId: _selectedFacePersonId,
                       onFaceSelected: _selectFacePerson,
                       faceNameResolver: _facePersonName,
+                      faceDatabase: _faceDatabase,
+                      onFaceAssignmentRejected: _rejectFaceAssignment,
+                      onFaceRejectionCleared: _clearFaceRejection,
                       onChanged: () {
                         setState(() {});
                         _scheduleProjectSave();
@@ -697,6 +810,7 @@ class _HomePageState extends State<HomePage> {
                           duplicateGroups: duplicateGroups,
                           settings: settings,
                           operations: project.operations,
+                          faceDatabaseDirectory: _getFaceDatabaseDirectory(),
                           onItemTransferred: (result) {
                             if (!mounted) return;
                             setState(() {});
@@ -2024,6 +2138,7 @@ class _HomePageState extends State<HomePage> {
           duplicateGroups: duplicateGroups,
           settings: settings,
           operations: project.operations,
+          faceDatabaseDirectory: _getFaceDatabaseDirectory(),
           saveMetadata: false,
           onItemTransferred: (result) {
             if (!mounted) return;

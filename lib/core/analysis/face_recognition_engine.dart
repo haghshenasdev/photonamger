@@ -8,15 +8,13 @@ import 'package:image/image.dart' as img;
 import 'face_info.dart';
 
 class FaceRecognitionEngine {
-  static const yunetAsset =
-      'assets/models/face_detection_yunet_2023mar.onnx';
+  static const yunetAsset = 'assets/models/face_detection_yunet_2023mar.onnx';
 
   /// Put the official OpenCV Zoo SFace model at this path.
-  static const sfaceAsset =
-      'assets/models/face_recognition_sface_2021dec.onnx';
+  static const sfaceAsset = 'assets/models/face_recognition_sface_2021dec.onnx';
 
   static const int detectorSize = 640;
-  static const int embeddingSize = 150;
+  static const int embeddingSize = 112;
 
   final OnnxRuntime _runtime = OnnxRuntime();
 
@@ -66,11 +64,7 @@ class FaceRecognitionEngine {
       final embedding = await _embed(source, detection);
       if (embedding.isEmpty) continue;
 
-      result.add(
-        detection.copyWith(
-          embedding: embedding,
-        ),
-      );
+      result.add(detection.copyWith(embedding: embedding));
     }
 
     return result;
@@ -85,7 +79,7 @@ class FaceRecognitionEngine {
       source,
       width: math.max(1, (source.width * scale).round()),
       height: math.max(1, (source.height * scale).round()),
-      interpolation: img.Interpolation.average,
+      interpolation: img.Interpolation.linear,
     );
   }
 
@@ -93,17 +87,21 @@ class FaceRecognitionEngine {
     final detector = _detector;
     if (detector == null) throw StateError('Face detector is not initialized.');
 
-    final input = _toNchwBgr(source, detectorSize);
-    final tensor = await OrtValue.fromList(
-      input,
-      [1, 3, detectorSize, detectorSize],
-    );
+    // YuNet is much more stable when the source aspect ratio is preserved.
+    // The previous implementation stretched every image to 640x640, which
+    // changes the geometry of faces before the five landmarks are produced.
+    final prepared = _prepareDetectorImage(source, detectorSize);
+
+    final tensor = await OrtValue.fromList(prepared.input, [
+      1,
+      3,
+      detectorSize,
+      detectorSize,
+    ]);
 
     Map<String, OrtValue> outputs = {};
     try {
-      outputs = await detector.run({
-        detector.inputNames.first: tensor,
-      });
+      outputs = await detector.run({detector.inputNames.first: tensor});
 
       final cls8 = await _flat(outputs['cls_8']);
       final cls16 = await _flat(outputs['cls_16']);
@@ -162,24 +160,33 @@ class FaceRecognitionEngine {
         }
       }
 
-      final scaleX = source.width / detectorSize;
-      final scaleY = source.height / detectorSize;
+      final scale = prepared.scale;
+      final padX = prepared.padX;
+      final padY = prepared.padY;
 
       return kept.map((d) {
+        double sourceX(double x) => (x - padX) / scale;
+        double sourceY(double y) => (y - padY) / scale;
+
+        final left = sourceX(d.left);
+        final top = sourceY(d.top);
+        final width = d.width / scale;
+        final height = d.height / scale;
+
         final landmarks = <double>[];
         for (var i = 0; i < d.landmarks.length; i += 2) {
-          landmarks.add(d.landmarks[i] * scaleX);
-          landmarks.add(d.landmarks[i + 1] * scaleY);
+          landmarks.add(sourceX(d.landmarks[i]));
+          landmarks.add(sourceY(d.landmarks[i + 1]));
         }
 
         return FaceInfo(
-          left: d.left * scaleX,
-          top: d.top * scaleY,
-          width: d.width * scaleX,
-          height: d.height * scaleY,
+          left: left.clamp(0, source.width.toDouble()),
+          top: top.clamp(0, source.height.toDouble()),
+          width: width.clamp(0, source.width.toDouble()),
+          height: height.clamp(0, source.height.toDouble()),
           landmarks: landmarks,
           confidence: d.confidence,
-          faceArea: d.width * scaleX * d.height * scaleY,
+          faceArea: width * height,
         );
       }).toList();
     } finally {
@@ -201,10 +208,7 @@ class FaceRecognitionEngine {
       rows * cols,
       math.min(
         cls.length,
-        math.min(
-          obj.length,
-          math.min(bbox.length ~/ 4, kps.length ~/ 10),
-        ),
+        math.min(obj.length, math.min(bbox.length ~/ 4, kps.length ~/ 10)),
       ),
     );
 
@@ -236,10 +240,12 @@ class FaceRecognitionEngine {
 
       final left = (cx - width / 2).clamp(0, detectorSize - 1).toDouble();
       final top = (cy - height / 2).clamp(0, detectorSize - 1).toDouble();
-      final right =
-          (cx + width / 2).clamp(0, detectorSize.toDouble()).toDouble();
-      final bottom =
-          (cy + height / 2).clamp(0, detectorSize.toDouble()).toDouble();
+      final right = (cx + width / 2)
+          .clamp(0, detectorSize.toDouble())
+          .toDouble();
+      final bottom = (cy + height / 2)
+          .clamp(0, detectorSize.toDouble())
+          .toDouble();
 
       if (right - left < 24 || bottom - top < 24) continue;
 
@@ -271,23 +277,25 @@ class FaceRecognitionEngine {
     return union <= 0 ? 0 : intersection / union;
   }
 
-  Future<List<double>> _embed(
-    img.Image source,
-    FaceInfo face,
-  ) async {
+  Future<List<double>> _embed(img.Image source, FaceInfo face) async {
     final recognizer = _recognizer;
+
     if (recognizer == null) {
       throw StateError('Face recognizer is not initialized.');
     }
 
     final aligned = _align(source, face.landmarks);
 
-    // SFace expects RGB values in the aligned face tensor. The model's
-    // original FaceRecognizerSF wrapper performs the equivalent color swap.
-    final input = List<double>.filled(
-      3 * embeddingSize * embeddingSize,
-      0,
-    );
+    // SFace expects a 112x112 aligned face.
+    //
+    // The OpenCV SFace implementation uses the aligned face in BGR
+    // channel order. image package stores/returns RGB pixels, therefore
+    // the channel order must be converted here.
+    // OpenCV's FaceRecognizerSF::feature() calls blobFromImage(...,
+    // swapRB=true). OpenCV images are BGR, therefore the resulting network
+    // tensor is RGB. The Dart image package is already RGB, so we must send
+    // R, G, B planes here — NOT B, G, R.
+    final input = List<double>.filled(3 * embeddingSize * embeddingSize, 0);
 
     var offsetR = 0;
     var offsetG = embeddingSize * embeddingSize;
@@ -296,32 +304,51 @@ class FaceRecognitionEngine {
     for (var y = 0; y < embeddingSize; y++) {
       for (var x = 0; x < embeddingSize; x++) {
         final pixel = aligned.getPixel(x, y);
+
         input[offsetR++] = pixel.r.toDouble();
         input[offsetG++] = pixel.g.toDouble();
         input[offsetB++] = pixel.b.toDouble();
       }
     }
 
-    final tensor = await OrtValue.fromList(
-      input,
-      [1, 3, embeddingSize, embeddingSize],
-    );
+    final tensor = await OrtValue.fromList(input, [
+      1,
+      3,
+      embeddingSize,
+      embeddingSize,
+    ]);
 
     Map<String, OrtValue> outputs = {};
+
     try {
-      outputs = await recognizer.run({
-        recognizer.inputNames.first: tensor,
-      });
+      outputs = await recognizer.run({recognizer.inputNames.first: tensor});
 
-      final first = outputs[recognizer.outputNames.first];
-      if (first == null) return const [];
+      final outputName = recognizer.outputNames.first;
+      final output = outputs[outputName];
 
-      final raw = await _flat(first);
-      if (raw.length < 8) return const [];
+      if (output == null) {
+        throw StateError('SFace output "$outputName" was not returned.');
+      }
 
-      return _l2Normalize(raw);
+      final raw = await _flat(output);
+
+      if (raw.length < 8) {
+        throw StateError(
+          'SFace returned an invalid embedding '
+          '(length=${raw.length}).',
+        );
+      }
+
+      final normalized = _l2Normalize(raw);
+
+      if (normalized.length < 8) {
+        throw StateError('SFace embedding normalization failed.');
+      }
+
+      return normalized;
     } finally {
       tensor.dispose();
+
       for (final value in outputs.values) {
         value.dispose();
       }
@@ -335,6 +362,7 @@ class FaceRecognitionEngine {
       final side = math.min(source.width, source.height);
       final left = (source.width - side) ~/ 2;
       final top = (source.height - side) ~/ 2;
+
       final crop = img.copyCrop(
         source,
         x: left,
@@ -342,6 +370,7 @@ class FaceRecognitionEngine {
         width: side,
         height: side,
       );
+
       return img.copyResize(
         crop,
         width: embeddingSize,
@@ -350,22 +379,20 @@ class FaceRecognitionEngine {
       );
     }
 
-    // YuNet landmark order is:
-    //   right eye, left eye, nose, right mouth, left mouth
+    // IMPORTANT:
+    // Keep YuNet landmark order exactly as returned by the detector.
     //
-    // The SFace/ArcFace template is:
-    //   left eye, right eye, nose, left mouth, right mouth
-    //
-    // Reordering here is essential for accurate alignment.
+    // OpenCV FaceRecognizerSF.alignCrop() uses the five landmarks
+    // directly from positions 4..13 of YuNet's face result.
     final src = <List<double>>[
-      [points[2], points[3]], // left eye
-      [points[0], points[1]], // right eye
-      [points[4], points[5]], // nose
-      [points[8], points[9]], // left mouth
-      [points[6], points[7]], // right mouth
+      [points[0], points[1]],
+      [points[2], points[3]],
+      [points[4], points[5]],
+      [points[6], points[7]],
+      [points[8], points[9]],
     ];
 
-    const base = [
+    const dst = <List<double>>[
       [38.2946, 51.6963],
       [73.5318, 51.5014],
       [56.0252, 71.7366],
@@ -373,12 +400,8 @@ class FaceRecognitionEngine {
       [70.7299, 92.2041],
     ];
 
-    final scale = embeddingSize / 112.0;
-    final dst = base
-        .map((point) => [point[0] * scale, point[1] * scale])
-        .toList();
-
     final transform = _similarityTransform(src, dst);
+
     final out = img.Image(width: embeddingSize, height: embeddingSize);
 
     final a = transform[0];
@@ -387,11 +410,13 @@ class FaceRecognitionEngine {
     final ty = transform[3];
 
     final denom = a * a + b * b;
+
     if (denom < 1e-10) {
       return img.copyResize(
         source,
         width: embeddingSize,
         height: embeddingSize,
+        interpolation: img.Interpolation.linear,
       );
     }
 
@@ -399,6 +424,7 @@ class FaceRecognitionEngine {
       for (var x = 0; x < embeddingSize; x++) {
         final dx = x - tx;
         final dy = y - ty;
+
         final sx = (a * dx + b * dy) / denom;
         final sy = (-b * dx + a * dy) / denom;
 
@@ -412,6 +438,7 @@ class FaceRecognitionEngine {
 
         final x0 = sx.floor();
         final y0 = sy.floor();
+
         final fx = sx - x0;
         final fy = sy - y0;
 
@@ -428,6 +455,7 @@ class FaceRecognitionEngine {
           fx,
           fy,
         );
+
         final g = _bilinear(
           p00.g.toDouble(),
           p10.g.toDouble(),
@@ -436,6 +464,7 @@ class FaceRecognitionEngine {
           fx,
           fy,
         );
+
         final bl = _bilinear(
           p00.b.toDouble(),
           p10.b.toDouble(),
@@ -519,32 +548,80 @@ class FaceRecognitionEngine {
     return top + (bottom - top) * fy;
   }
 
-  List<double> _toNchwBgr(img.Image source, int size) {
+  _DetectorInput _prepareDetectorImage(
+    img.Image source,
+    int size,
+  ) {
+    final scale = math.min(
+      size / source.width,
+      size / source.height,
+    );
+
+    final resizedWidth =
+        math.max(1, (source.width * scale).round());
+    final resizedHeight =
+        math.max(1, (source.height * scale).round());
+
     final resized = img.copyResize(
       source,
+      width: resizedWidth,
+      height: resizedHeight,
+      interpolation: img.Interpolation.linear,
+    );
+
+    final canvas = img.Image(
       width: size,
       height: size,
-      interpolation: img.Interpolation.average,
     );
+
+    // YuNet receives a BGR tensor, matching OpenCV's FaceDetectorYN path.
+    for (var y = 0; y < size; y++) {
+      for (var x = 0; x < size; x++) {
+        canvas.setPixelRgb(x, y, 0, 0, 0);
+      }
+    }
+
+    final padX = ((size - resizedWidth) / 2).floor();
+    final padY = ((size - resizedHeight) / 2).floor();
+
+    for (var y = 0; y < resizedHeight; y++) {
+      for (var x = 0; x < resizedWidth; x++) {
+        final pixel = resized.getPixel(x, y);
+        canvas.setPixelRgb(
+          x + padX,
+          y + padY,
+          pixel.r,
+          pixel.g,
+          pixel.b,
+        );
+      }
+    }
 
     final plane = size * size;
     final output = List<double>.filled(plane * 3, 0);
 
-    var b = 0;
-    var g = plane;
-    var r = plane * 2;
+    var offsetB = 0;
+    var offsetG = plane;
+    var offsetR = plane * 2;
 
     for (var y = 0; y < size; y++) {
       for (var x = 0; x < size; x++) {
-        final pixel = resized.getPixel(x, y);
-        output[b++] = pixel.b.toDouble();
-        output[g++] = pixel.g.toDouble();
-        output[r++] = pixel.r.toDouble();
+        final pixel = canvas.getPixel(x, y);
+
+        output[offsetB++] = pixel.b.toDouble();
+        output[offsetG++] = pixel.g.toDouble();
+        output[offsetR++] = pixel.r.toDouble();
       }
     }
 
-    return output;
+    return _DetectorInput(
+      input: output,
+      scale: scale,
+      padX: padX.toDouble(),
+      padY: padY.toDouble(),
+    );
   }
+
 
   Future<List<double>> _flat(OrtValue? value) async {
     if (value == null) return const [];
@@ -576,7 +653,20 @@ class FaceRecognitionEngine {
 
     return values.map((e) => e / norm).toList();
   }
+}
 
+class _DetectorInput {
+  final List<double> input;
+  final double scale;
+  final double padX;
+  final double padY;
+
+  const _DetectorInput({
+    required this.input,
+    required this.scale,
+    required this.padX,
+    required this.padY,
+  });
 }
 
 class _Detection {

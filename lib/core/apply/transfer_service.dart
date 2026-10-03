@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:fgphoto/core/project/project_operation.dart';
 import 'package:fgphoto/core/metadata/metadata_service.dart';
+import 'package:fgphoto/core/analysis/face_database.dart';
 import 'package:fgphoto/core/apply/folder_builder.dart';
 import 'package:fgphoto/ui/models/apply_settings.dart';
 import 'package:fgphoto/ui/models/duplicate_group.dart';
@@ -259,6 +260,7 @@ class TransferService {
     void Function(TransferProgress progress)? onProgress,
     void Function(TransferResult result)? onItemTransferred,
     void Function(ProjectOperation operation)? onOperationChanged,
+    String? faceDatabaseDirectory,
     bool saveMetadata = true,
   }) async {
     final selectedDuplicateFiles = <String>{};
@@ -403,6 +405,42 @@ class TransferService {
         await _saveGroupMetadata(timeline, folder.path);
       } catch (_) {
         // خطای metadata نباید باعث از دست رفتن وضعیت انتقال فایل‌ها شود.
+      }
+    }
+
+    // --------------------------------------------------------------
+    // Portable face archive
+    // --------------------------------------------------------------
+    // بعد از اتمام Copy/Move، مسیر MediaItemها به مقصد نهایی اشاره می‌کند.
+    // اکنون embeddingها و personIdهای مربوط به همان فایل‌ها را داخل خود
+    // پوشه مقصد ذخیره می‌کنیم تا آرشیو بدون فایل پروژه هم قابل انتقال باشد.
+    if (faceDatabaseDirectory != null &&
+        faceDatabaseDirectory.trim().isNotEmpty) {
+      try {
+        final directories = <String>{};
+        final archiveItems = <MediaItem>[];
+
+        for (final timeline in groups) {
+          final folder = await _resolveGroupFolder(
+            group: timeline,
+            settings: settings,
+          );
+          if (await folder.exists()) {
+            directories.add(folder.path);
+            archiveItems.addAll(timeline.items);
+          }
+        }
+
+        if (directories.isNotEmpty && archiveItems.isNotEmpty) {
+          await const FaceDatabaseService().exportPortableArchives(
+            databaseDirectory: faceDatabaseDirectory,
+            sourceRoots: directories.toList(),
+            items: archiveItems,
+          );
+        }
+      } catch (_) {
+        // Face metadata is supplementary. A failure here must not mark the
+        // already completed file transfer as failed.
       }
     }
 

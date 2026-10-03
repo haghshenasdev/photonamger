@@ -57,10 +57,8 @@ class AnalysisEngine {
     required this.bestPhotoSelector,
     FaceRecognitionEngine? faceRecognitionEngine,
     FaceDatabaseService? faceDatabaseService,
-  })  : faceRecognitionEngine =
-            faceRecognitionEngine ?? FaceRecognitionEngine(),
-        faceDatabaseService =
-            faceDatabaseService ?? const FaceDatabaseService(),
+  }) : faceRecognitionEngine = faceRecognitionEngine ?? FaceRecognitionEngine(),
+       faceDatabaseService = faceDatabaseService ?? const FaceDatabaseService(),
        timelineBuilder = timelineBuilder ?? TimelineBuilder(),
        duplicateDetector = duplicateDetector ?? DuplicateDetector(),
        temporalBurstDetector = temporalBurstDetector ?? TemporalBurstDetector();
@@ -157,55 +155,63 @@ class AnalysisEngine {
         forceRescan: forceRescan,
       );
 
-    if (pending.isEmpty) {
-      _updateProgress(
-        AnalysisStage.faces,
-        mediaItems.length,
-        mediaItems.length,
-        'اطلاعات چهره از حافظه محلی بارگذاری شد.',
-        callback,
-      );
-      return;
-    }
-
-    // Fail before writing any scan records if the recognition model is not
-    // installed. This keeps the cache retryable after the user adds the model.
-    await faceRecognitionEngine.initialize();
-
-    final analyzed = <MediaItem, List<FaceInfo>>{};
-
-    for (var index = 0; index < pending.length; index++) {
-      if (!await controller.checkpoint()) return;
-
-      final item = pending[index];
-
-      _updateProgress(
-        AnalysisStage.faces,
-        index + 1,
-        pending.length,
-        'در حال تشخیص چهره ${index + 1} از ${pending.length}...',
-        callback,
-      );
-
-      try {
-        final faces = await faceRecognitionEngine.analyzeFile(item.path);
-        analyzed[item] = faces;
-      } catch (e, stackTrace) {
-        // A corrupt/unsupported image must not abort the entire analysis.
-        item.analysisMessage = 'خطا در تشخیص چهره: $e';
-        analyzed[item] = const [];
-        debugPrint('Face analysis failed: ${item.path} -> $e');
-        debugPrintStack(stackTrace: stackTrace);
+      if (pending.isEmpty) {
+        _updateProgress(
+          AnalysisStage.faces,
+          mediaItems.length,
+          mediaItems.length,
+          'اطلاعات چهره از حافظه محلی بارگذاری شد.',
+          callback,
+        );
+        return;
       }
-    }
 
-    if (controller.isCancelled) return;
+      // Fail before writing any scan records if the recognition model is not
+      // installed. This keeps the cache retryable after the user adds the model.
+      await faceRecognitionEngine.initialize();
 
-    await faceDatabaseService.mergeAnalysis(
-      databaseDirectory: databaseDirectory,
-      sourceRoots: sourceRoots,
-      analyzed: analyzed,
-    );
+      final analyzed = <MediaItem, List<FaceInfo>>{};
+
+      for (var index = 0; index < pending.length; index++) {
+        if (!await controller.checkpoint()) return;
+
+        final item = pending[index];
+
+        _updateProgress(
+          AnalysisStage.faces,
+          index + 1,
+          pending.length,
+          'در حال تشخیص چهره ${index + 1} از ${pending.length}...',
+          callback,
+        );
+
+        try {
+          final faces = await faceRecognitionEngine.analyzeFile(item.path);
+
+          debugPrint(
+            '[FACE] ${item.fileName}: '
+            '${faces.length} face(s) detected',
+          );
+
+          analyzed[item] = faces;
+        } catch (e, stackTrace) {
+          item.analysisMessage = 'خطا در تشخیص چهره: $e';
+
+          debugPrint('[FACE ERROR] ${item.path}\n$e');
+
+          debugPrintStack(stackTrace: stackTrace);
+
+          analyzed[item] = const [];
+        }
+      }
+
+      if (controller.isCancelled) return;
+
+      await faceDatabaseService.mergeAnalysis(
+        databaseDirectory: databaseDirectory,
+        sourceRoots: sourceRoots,
+        analyzed: analyzed,
+      );
 
       _updateProgress(
         AnalysisStage.faces,

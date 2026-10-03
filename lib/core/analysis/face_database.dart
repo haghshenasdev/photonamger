@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../../ui/models/media_item.dart';
@@ -166,25 +167,59 @@ class FaceScan {
   );
 }
 
+
+class FaceRejection {
+  String fingerprint;
+  String personId;
+  DateTime createdAt;
+
+  FaceRejection({
+    required this.fingerprint,
+    required this.personId,
+    DateTime? createdAt,
+  }) : createdAt = createdAt ?? DateTime.now();
+
+  String get key => '$fingerprint|$personId';
+
+  Map<String, dynamic> toJson() => {
+    'fingerprint': fingerprint,
+    'personId': personId,
+    'createdAt': createdAt.toIso8601String(),
+  };
+
+  factory FaceRejection.fromJson(Map<String, dynamic> json) {
+    return FaceRejection(
+      fingerprint: json['fingerprint']?.toString() ?? '',
+      personId: json['personId']?.toString() ?? '',
+      createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? ''),
+    );
+  }
+}
+
 class FaceDatabase {
-  int version = 1;
+  int version = 4;
   List<FacePerson> persons;
   List<StoredFace> faces;
   List<FaceScan> scans;
+  List<FaceRejection> rejections;
 
   FaceDatabase({
     List<FacePerson>? persons,
     List<StoredFace>? faces,
     List<FaceScan>? scans,
+    List<FaceRejection>? rejections,
   }) : persons = persons ?? <FacePerson>[],
        faces = faces ?? <StoredFace>[],
-       scans = scans ?? <FaceScan>[];
+       scans = scans ?? <FaceScan>[],
+       rejections = rejections ?? <FaceRejection>[];
 
   Map<String, dynamic> toJson() => {
     'version': version,
+    'archive': false,
     'persons': persons.map((e) => e.toJson()).toList(),
     'faces': faces.map((e) => e.toJson()).toList(),
     'scans': scans.map((e) => e.toJson()).toList(),
+    'rejections': rejections.map((e) => e.toJson()).toList(),
   };
 
   String toPrettyJson() => const JsonEncoder.withIndent('  ').convert(toJson());
@@ -220,8 +255,27 @@ class FaceDatabase {
       }
     }
 
-    return FaceDatabase(persons: persons, faces: faces, scans: scans)
-      ..version = int.tryParse('${json['version']}') ?? 1;
+    final rejections = <FaceRejection>[];
+    final rawRejections = json['rejections'];
+    if (rawRejections is List) {
+      for (final raw in rawRejections) {
+        if (raw is Map) {
+          final rejection =
+              FaceRejection.fromJson(Map<String, dynamic>.from(raw));
+          if (rejection.fingerprint.trim().isNotEmpty &&
+              rejection.personId.trim().isNotEmpty) {
+            rejections.add(rejection);
+          }
+        }
+      }
+    }
+
+    return FaceDatabase(
+      persons: persons,
+      faces: faces,
+      scans: scans,
+      rejections: rejections,
+    )..version = int.tryParse('${json['version']}') ?? 1;
   }
 }
 
@@ -321,7 +375,11 @@ class FaceDatabaseService {
   }) async {
     final db = await load(databaseDirectory);
 
-    var databaseChanged = false;
+    // Import identities carried by already-applied folders.
+    var databaseChanged = await importPortableArchives(
+      sourceRoots: sourceRoots,
+      database: db,
+    );
 
     final pending = <MediaItem>[];
 
@@ -352,9 +410,9 @@ class FaceDatabaseService {
 
       byKey.putIfAbsent(exactKey, () => []).add(face);
 
-      final fileName = p.basename(_normRelative(face.relativePath));
-
-      final portableKey = '$fileName|${face.fingerprint}';
+      // Content fingerprint is intentionally independent of file name/path.
+      // This lets a renamed or moved image recover its face records.
+      final portableKey = face.fingerprint;
 
       byPortableKey.putIfAbsent(portableKey, () => []).add(face);
     }
@@ -401,7 +459,7 @@ class FaceDatabaseService {
       // حالا filename + fingerprint را امتحان می‌کنیم.
       // ==========================================================
       if (cached == null || cached.isEmpty) {
-        final portableKey = '${p.basename(normalizedRelative)}|$fingerprint';
+        final portableKey = fingerprint;
 
         final portableMatches = byPortableKey[portableKey];
 
@@ -427,6 +485,20 @@ class FaceDatabaseService {
           // ------------------------------------------------------
           byKey[exactKey] = cached;
         }
+      }
+
+      // A user can explicitly reject a person for this exact image.
+      // Keep other faces on the same image intact.
+      if (cached != null && cached.isNotEmpty) {
+        cached = cached
+            .where(
+              (face) => !_isRejected(
+                db,
+                fingerprint,
+                face.personId,
+              ),
+            )
+            .toList();
       }
 
       // ==========================================================
@@ -502,6 +574,593 @@ class FaceDatabaseService {
     return pending;
   }
 
+  /// Imports portable face manifests found inside the supplied source roots.
+  ///
+  /// A portable manifest is a `.archino_faces.json` whose `archive` value is
+  /// `true`. It travels with an applied folder. The person's ID is the stable
+  /// identity; the display name is only metadata and can safely change.
+  Future<bool> importPortableArchives({
+    required List<String> sourceRoots,
+    required FaceDatabase database,
+  }) async {
+    if (sourceRoots.isEmpty) return false;
+
+    var changed = false;
+
+    final personsById = <String, FacePerson>{
+      for (final person in database.persons)
+        if (person.id.trim().isNotEmpty) person.id: person,
+    };
+
+    // A SHA-256 identifies the image independently of path/name/computer.
+    final knownFingerprints = <String>{
+      for (final face in database.faces)
+        if (face.fingerprint.trim().isNotEmpty &&
+            face.fingerprint != 'missing')
+          face.fingerprint,
+    };
+
+    final processedManifests = <String>{};
+
+    for (final sourceRoot in sourceRoots) {
+      final rootDirectory = Directory(sourceRoot);
+      if (!await rootDirectory.exists()) continue;
+
+      try {
+        await for (final entity in rootDirectory.list(
+          recursive: true,
+          followLinks: false,
+        )) {
+          if (entity is! File || p.basename(entity.path) != fileName) {
+            continue;
+          }
+
+          final manifestPath = p.normalize(entity.path);
+          if (!processedManifests.add(manifestPath)) continue;
+
+          try {
+            final decoded = jsonDecode(await entity.readAsString());
+            if (decoded is! Map) continue;
+
+            final raw = Map<String, dynamic>.from(decoded);
+            if (raw['archive'] != true) continue;
+
+            final archive = FaceDatabase.fromJson(raw);
+            final manifestDirectory = p.dirname(entity.path);
+
+            // ----------------------------------------------------------
+            // Persons
+            // ----------------------------------------------------------
+            for (final importedPerson in archive.persons) {
+              if (importedPerson.id.trim().isEmpty) continue;
+
+              final existing = personsById[importedPerson.id];
+
+              if (existing == null) {
+                final copied = FacePerson(
+                  id: importedPerson.id,
+                  name: importedPerson.name.trim().isEmpty
+                      ? 'شخص'
+                      : importedPerson.name.trim(),
+                  coverRootKey: importedPerson.coverRootKey,
+                  coverRelativePath: importedPerson.coverRelativePath,
+                  createdAt: importedPerson.createdAt,
+                  updatedAt: importedPerson.updatedAt,
+                );
+
+                database.persons.add(copied);
+                personsById[copied.id] = copied;
+                changed = true;
+              } else {
+                // Stable ID wins over the display name. A newer rename can
+                // therefore propagate from one computer to another without
+                // creating a second person.
+                if (importedPerson.updatedAt.isAfter(existing.updatedAt)) {
+                  final newName = importedPerson.name.trim();
+                  if (newName.isNotEmpty && newName != existing.name) {
+                    existing.name = newName;
+                    changed = true;
+                  }
+
+                  if (importedPerson.coverRootKey != null &&
+                      importedPerson.coverRootKey!.trim().isNotEmpty) {
+                    existing.coverRootKey = importedPerson.coverRootKey;
+                  }
+                  if (importedPerson.coverRelativePath != null &&
+                      importedPerson.coverRelativePath!.trim().isNotEmpty) {
+                    existing.coverRelativePath =
+                        importedPerson.coverRelativePath;
+                  }
+
+                  existing.updatedAt = importedPerson.updatedAt;
+                  changed = true;
+                }
+              }
+            }
+
+            // ----------------------------------------------------------
+            // User corrections / rejected identities
+            // ----------------------------------------------------------
+            for (final importedRejection in archive.rejections) {
+              if (importedRejection.fingerprint.trim().isEmpty ||
+                  importedRejection.personId.trim().isEmpty) {
+                continue;
+              }
+
+              if (!personsById.containsKey(importedRejection.personId)) {
+                continue;
+              }
+
+              final exists = database.rejections.any(
+                (r) => r.key == importedRejection.key,
+              );
+
+              if (!exists) {
+                database.rejections.add(
+                  FaceRejection(
+                    fingerprint: importedRejection.fingerprint,
+                    personId: importedRejection.personId,
+                    createdAt: importedRejection.createdAt,
+                  ),
+                );
+                changed = true;
+              }
+
+              // A rejection is authoritative: remove an old stale
+              // association imported from another machine/archive.
+              final before = database.faces.length;
+              database.faces.removeWhere(
+                (face) =>
+                    face.fingerprint == importedRejection.fingerprint &&
+                    face.personId == importedRejection.personId,
+              );
+              if (before != database.faces.length) {
+                changed = true;
+              }
+            }
+
+            // ----------------------------------------------------------
+            // Faces
+            // ----------------------------------------------------------
+            for (final importedFace in archive.faces) {
+              if (importedFace.personId.trim().isEmpty) continue;
+              if (importedFace.fingerprint.trim().isEmpty ||
+                  importedFace.fingerprint == 'missing') {
+                continue;
+              }
+
+              if (!personsById.containsKey(importedFace.personId)) {
+                continue;
+              }
+
+              if (_isRejected(
+                database,
+                importedFace.fingerprint,
+                importedFace.personId,
+              )) {
+                continue;
+              }
+
+              // The same image must never be imported twice, even when the
+              // file has been renamed or moved to another computer.
+              if (knownFingerprints.contains(importedFace.fingerprint)) {
+                continue;
+              }
+
+              final resolved = await _resolvePortableFacePath(
+                importedFace,
+                sourceRoot: sourceRoot,
+                manifestDirectory: manifestDirectory,
+              );
+
+              String rootKey;
+              String relativePath;
+
+              if (resolved != null) {
+                final location = _locate(resolved, sourceRoots);
+                if (location != null) {
+                  rootKey = location.rootKey;
+                  relativePath = location.relativePath;
+                } else {
+                  rootKey = _rootKey(sourceRoot);
+                  relativePath = p.relative(
+                    resolved,
+                    from: sourceRoot,
+                  );
+                }
+              } else {
+                // Keep the portable relative location if the image is not
+                // currently accessible. It can be rebased on a later scan.
+                rootKey = _rootKey(sourceRoot);
+                relativePath = importedFace.relativePath;
+              }
+
+              final copiedFace = StoredFace(
+                id: importedFace.id.trim().isEmpty
+                    ? _newId()
+                    : importedFace.id,
+                personId: importedFace.personId,
+                rootKey: rootKey,
+                relativePath: relativePath,
+                fingerprint: importedFace.fingerprint,
+                left: importedFace.left,
+                top: importedFace.top,
+                width: importedFace.width,
+                height: importedFace.height,
+                confidence: importedFace.confidence,
+                landmarks: List<double>.from(importedFace.landmarks),
+                embedding: List<double>.from(importedFace.embedding),
+              );
+
+              database.faces.add(copiedFace);
+              knownFingerprints.add(importedFace.fingerprint);
+              changed = true;
+            }
+          } catch (_) {
+            // A broken manifest must not abort the scan of other folders.
+          }
+        }
+      } catch (_) {
+        // An inaccessible source root must not abort other roots.
+      }
+    }
+
+    return changed;
+  }
+
+  Future<String?> _resolvePortableFacePath(
+    StoredFace face, {
+    required String sourceRoot,
+    required String manifestDirectory,
+  }) async {
+    final relative = _normRelative(face.relativePath);
+    if (relative.isEmpty) return null;
+
+    // First try the root-relative path recorded by the archive.
+    final rootCandidate = p.normalize(p.join(sourceRoot, relative));
+    if (await File(rootCandidate).exists()) return rootCandidate;
+
+    // Then try the manifest's directory. This supports archives whose
+    // relativePath was stored relative to the applied folder itself.
+    final localCandidate = p.normalize(
+      p.join(manifestDirectory, relative),
+    );
+    if (await File(localCandidate).exists()) return localCandidate;
+
+    // Finally, if the archive's path contains directories that match the
+    // current source root, walk upward from the manifest directory.
+    var current = Directory(manifestDirectory);
+    while (true) {
+      final candidate = p.normalize(p.join(current.path, relative));
+      if (await File(candidate).exists()) return candidate;
+
+      final parent = current.parent;
+      if (p.normalize(parent.path) == p.normalize(current.path)) break;
+      current = parent;
+    }
+
+    return null;
+  }
+
+  /// Writes a portable face manifest beside the images represented by the
+  /// current database. This can be called after an Apply operation.
+  ///
+  /// It groups faces by their current parent directory, so every applied
+  /// folder gets its own self-contained `.archino_faces.json`.
+  Future<void> exportPortableArchives({
+    required String databaseDirectory,
+    required List<String> sourceRoots,
+    required List<MediaItem> items,
+  }) async {
+    if (sourceRoots.isEmpty) return;
+
+    final database = await load(databaseDirectory);
+    if (database.faces.isEmpty && database.rejections.isEmpty) return;
+
+    final personsById = <String, FacePerson>{
+      for (final person in database.persons) person.id: person,
+    };
+
+    final groupedFaces = <String, List<StoredFace>>{};
+    final groupedRejections = <String, List<FaceRejection>>{};
+
+    // First use stored faces to locate normal face records.
+    for (final face in database.faces) {
+      if (_isRejected(database, face.fingerprint, face.personId)) {
+        continue;
+      }
+
+      final path = resolveStoredPath(face, sourceRoots);
+      final file = File(path);
+      if (!await file.exists()) continue;
+
+      final directory = p.dirname(path);
+      groupedFaces.putIfAbsent(directory, () => <StoredFace>[]).add(face);
+    }
+
+    // Rejections do not have a StoredFace anymore, so use the currently
+    // scanned MediaItems to locate their physical folder by fingerprint.
+    final itemDirectoryByFingerprint = <String, String>{};
+
+    for (final item in items) {
+      if (item.isVideo) continue;
+
+      final fingerprint = await fingerprintOf(item.path);
+      if (fingerprint == 'missing') continue;
+
+      itemDirectoryByFingerprint[fingerprint] = p.dirname(item.path);
+    }
+
+    // Also recover the directory from any historical face with the same
+    // fingerprint. This helps when the caller did not pass that MediaItem.
+    for (final rejection in database.rejections) {
+      String? directory = itemDirectoryByFingerprint[rejection.fingerprint];
+
+      if (directory == null) {
+        for (final face in database.faces) {
+          if (face.fingerprint != rejection.fingerprint) continue;
+
+          final path = resolveStoredPath(face, sourceRoots);
+          if (await File(path).exists()) {
+            directory = p.dirname(path);
+            break;
+          }
+        }
+      }
+
+      if (directory == null) continue;
+
+      groupedRejections
+          .putIfAbsent(directory, () => <FaceRejection>[])
+          .add(rejection);
+    }
+
+    final directories = <String>{
+      ...groupedFaces.keys,
+      ...groupedRejections.keys,
+    };
+
+    for (final directory in directories) {
+      final archiveFaces = groupedFaces[directory] ?? const <StoredFace>[];
+      final archiveRejections =
+          groupedRejections[directory] ?? const <FaceRejection>[];
+
+      final personIds = <String>{
+        ...archiveFaces.map((e) => e.personId),
+        ...archiveRejections.map((e) => e.personId),
+      };
+
+      final archivePersons = <FacePerson>[];
+
+      for (final personId in personIds) {
+        final person = personsById[personId];
+        if (person == null) continue;
+
+        archivePersons.add(
+          FacePerson(
+            id: person.id,
+            name: person.name,
+            coverRootKey: person.coverRootKey,
+            coverRelativePath: person.coverRelativePath,
+            createdAt: person.createdAt,
+            updatedAt: person.updatedAt,
+          ),
+        );
+      }
+
+      final archive = FaceDatabase(
+        persons: archivePersons,
+        faces: archiveFaces.map(_copyStoredFace).toList(),
+        scans: const <FaceScan>[],
+        rejections: archiveRejections
+            .map(
+              (rejection) => FaceRejection(
+                fingerprint: rejection.fingerprint,
+                personId: rejection.personId,
+                createdAt: rejection.createdAt,
+              ),
+            )
+            .toList(),
+      )..version = 4;
+
+      final json = archive.toJson()..['archive'] = true;
+      final target = File(p.join(directory, fileName));
+      final temp = File('${target.path}.tmp');
+
+      await target.parent.create(recursive: true);
+      await temp.writeAsString(
+        const JsonEncoder.withIndent('  ').convert(json),
+        encoding: utf8,
+        flush: true,
+      );
+
+      if (await target.exists()) await target.delete();
+      await temp.rename(target.path);
+    }
+  }
+
+  static StoredFace _copyStoredFace(StoredFace face) {
+    return StoredFace(
+      id: face.id,
+      personId: face.personId,
+      rootKey: face.rootKey,
+      relativePath: face.relativePath,
+      fingerprint: face.fingerprint,
+      left: face.left,
+      top: face.top,
+      width: face.width,
+      height: face.height,
+      confidence: face.confidence,
+      landmarks: List<double>.from(face.landmarks),
+      embedding: List<double>.from(face.embedding),
+    );
+  }
+
+  bool _isRejected(
+    FaceDatabase database,
+    String fingerprint,
+    String personId,
+  ) {
+    if (fingerprint.trim().isEmpty || personId.trim().isEmpty) return false;
+
+    return database.rejections.any(
+      (rejection) =>
+          rejection.fingerprint == fingerprint &&
+          rejection.personId == personId,
+    );
+  }
+
+  List<String> rejectedPersonIds(
+    FaceDatabase database,
+    String fingerprint,
+  ) {
+    return database.rejections
+        .where((r) => r.fingerprint == fingerprint)
+        .map((r) => r.personId)
+        .toSet()
+        .toList();
+  }
+
+  /// Marks an automatic face assignment as incorrect for this exact image.
+  ///
+  /// The rejection is keyed by SHA-256 + personId, so moving or renaming the
+  /// image does not make the correction disappear.
+  Future<void> rejectFaceForPerson({
+    required String databaseDirectory,
+    required String imagePath,
+    required String personId,
+    required List<String> sourceRoots,
+  }) async {
+    final fingerprint = await fingerprintOf(imagePath);
+    if (fingerprint == 'missing') return;
+
+    final db = await load(databaseDirectory);
+
+    db.faces.removeWhere(
+      (face) =>
+          face.fingerprint == fingerprint &&
+          face.personId == personId,
+    );
+
+    final exists = db.rejections.any(
+      (rejection) => rejection.key == '$fingerprint|$personId',
+    );
+
+    if (!exists) {
+      db.rejections.add(
+        FaceRejection(
+          fingerprint: fingerprint,
+          personId: personId,
+        ),
+      );
+    }
+
+    await save(databaseDirectory, db);
+
+    await _syncRejectionToPortableManifests(
+      sourceRoots: sourceRoots,
+      fingerprint: fingerprint,
+      personId: personId,
+    );
+  }
+
+  /// Removes a previous "not this person" correction.
+  ///
+  /// The face is not automatically assigned again. The next face analysis
+  /// can decide whether it belongs to this person.
+  Future<void> clearFaceRejection({
+    required String databaseDirectory,
+    required String imagePath,
+    required String personId,
+    required List<String> sourceRoots,
+  }) async {
+    final fingerprint = await fingerprintOf(imagePath);
+    if (fingerprint == 'missing') return;
+
+    final db = await load(databaseDirectory);
+
+    db.rejections.removeWhere(
+      (rejection) =>
+          rejection.fingerprint == fingerprint &&
+          rejection.personId == personId,
+    );
+
+    await save(databaseDirectory, db);
+
+    await _removeRejectionFromPortableManifests(
+      sourceRoots: sourceRoots,
+      fingerprint: fingerprint,
+      personId: personId,
+    );
+  }
+
+  Future<void> _syncRejectionToPortableManifests({
+    required List<String> sourceRoots,
+    required String fingerprint,
+    required String personId,
+  }) async {
+    await _forEachPortableManifest(
+      databaseDirectory: sourceRoots.isEmpty ? '.' : sourceRoots.first,
+      sourceRoots: sourceRoots,
+      action: (file, archive) async {
+        final containsImage = archive.faces.any(
+          (face) => face.fingerprint == fingerprint,
+        );
+
+        if (!containsImage) return false;
+
+        archive.faces.removeWhere(
+          (face) =>
+              face.fingerprint == fingerprint &&
+              face.personId == personId,
+        );
+
+        if (!archive.persons.any((person) => person.id == personId)) {
+          return false;
+        }
+
+        final exists = archive.rejections.any(
+          (rejection) =>
+              rejection.fingerprint == fingerprint &&
+              rejection.personId == personId,
+        );
+
+        if (!exists) {
+          archive.rejections.add(
+            FaceRejection(
+              fingerprint: fingerprint,
+              personId: personId,
+            ),
+          );
+        }
+
+        return true;
+      },
+    );
+  }
+
+  Future<void> _removeRejectionFromPortableManifests({
+    required List<String> sourceRoots,
+    required String fingerprint,
+    required String personId,
+  }) async {
+    await _forEachPortableManifest(
+      databaseDirectory: sourceRoots.isEmpty ? '.' : sourceRoots.first,
+      sourceRoots: sourceRoots,
+      action: (file, archive) async {
+        final before = archive.rejections.length;
+
+        archive.rejections.removeWhere(
+          (rejection) =>
+              rejection.fingerprint == fingerprint &&
+              rejection.personId == personId,
+        );
+
+        return before != archive.rejections.length;
+      },
+    );
+  }
+
   /// Adds new faces and automatically assigns each face to the closest
   /// existing person. A new person is created only when similarity is below
   /// the conservative threshold.
@@ -512,10 +1171,37 @@ class FaceDatabaseService {
   }) async {
     final db = await load(databaseDirectory);
 
-    // Build identity exemplars BEFORE replacing the files being analyzed.
-    // A person is represented by a mean prototype plus a few real embeddings.
-    final prototypes = _buildPrototypes(db);
-    final exemplars = _buildExemplars(db);
+    // Bring portable identities into the central database before matching.
+    await importPortableArchives(
+      sourceRoots: sourceRoots,
+      database: db,
+    );
+
+    // Do not let a face from the very image being re-analyzed influence
+    // its own new identity. This is especially important during a forced
+    // re-scan: otherwise a previous wrong assignment becomes its own
+    // strongest exemplar and the error can repeat forever.
+    final analysisFingerprints = <String>{};
+    for (final item in analyzed.keys) {
+      final fingerprint = await fingerprintOf(item.path);
+      if (fingerprint != 'missing') {
+        analysisFingerprints.add(fingerprint);
+      }
+    }
+
+    final matchingDatabase = FaceDatabase(
+      persons: db.persons,
+      faces: db.faces
+          .where((face) => !analysisFingerprints.contains(face.fingerprint))
+          .toList(),
+      scans: db.scans,
+      rejections: db.rejections,
+    );
+
+    // A person is represented by a mean prototype plus a few real historical
+    // embeddings that belong to other images.
+    final prototypes = _buildPrototypes(matchingDatabase);
+    final exemplars = _buildExemplars(matchingDatabase);
 
     for (final entry in analyzed.entries) {
       final item = entry.key;
@@ -552,7 +1238,13 @@ class FaceDatabaseService {
 
         final normalized = _normalize(detected.embedding);
 
-        final match = _findPerson(normalized, prototypes, exemplars, db);
+        final match = _findPerson(
+          normalized,
+          prototypes,
+          exemplars,
+          db,
+          fingerprint: fingerprint,
+        );
 
         final person = match ?? _createPerson(db);
 
@@ -573,20 +1265,18 @@ class FaceDatabaseService {
 
         db.faces.add(stored);
 
-        prototypes[person.id] = _blend(prototypes[person.id], normalized);
-
-        final personExemplars = exemplars.putIfAbsent(
-          person.id,
-          () => <List<double>>[],
-        );
-
-        if (personExemplars.length < maxExemplarsPerPerson) {
-          personExemplars.add(List<double>.from(normalized));
-        } else {
-          // Replace the oldest representative occasionally. This keeps
-          // matching fast while allowing the identity to adapt over time.
-          final replaceIndex = db.faces.length % maxExemplarsPerPerson;
-          personExemplars[replaceIndex] = List<double>.from(normalized);
+        // Do not let newly analyzed images immediately rewrite the historical
+        // prototype/exemplar set of an existing person. That made recognition
+        // order-dependent and could spread one wrong match through the batch.
+        //
+        // A newly created person is the exception: its first embedding is
+        // needed so another face of the same new person in this same analysis
+        // can be grouped with it.
+        if (match == null) {
+          prototypes[person.id] = List<double>.from(normalized);
+          exemplars[person.id] = <List<double>>[
+            List<double>.from(normalized),
+          ];
         }
 
         item.faces.add(
@@ -615,6 +1305,7 @@ class FaceDatabaseService {
     required String databaseDirectory,
     required String primaryPersonId,
     required String secondaryPersonId,
+    List<String> sourceRoots = const <String>[],
   }) async {
     if (primaryPersonId == secondaryPersonId) return;
 
@@ -641,6 +1332,20 @@ class FaceDatabaseService {
       }
     }
 
+    for (final rejection in db.rejections) {
+      if (rejection.personId == secondaryPersonId) {
+        rejection.personId = primaryPersonId;
+      }
+    }
+
+    db.rejections = db.rejections
+        .fold(<String, FaceRejection>{}, (map, rejection) {
+          map[rejection.key] = rejection;
+          return map;
+        })
+        .values
+        .toList();
+
     // If the primary person has no cover, inherit the secondary cover.
     if (primary.coverRelativePath == null &&
         secondary.coverRelativePath != null) {
@@ -653,6 +1358,18 @@ class FaceDatabaseService {
     db.persons.removeWhere((person) => person.id == secondaryPersonId);
 
     await save(databaseDirectory, db);
+
+    await _syncPersonToPortableManifests(
+      databaseDirectory: databaseDirectory,
+      sourceRoots: sourceRoots,
+      personId: primaryPersonId,
+    );
+
+    await _removePersonFromPortableManifests(
+      databaseDirectory: databaseDirectory,
+      sourceRoots: sourceRoots,
+      personId: secondaryPersonId,
+    );
   }
 
   /// Finds pairs of people whose stored face embeddings are unusually close.
@@ -742,6 +1459,7 @@ class FaceDatabaseService {
     required String databaseDirectory,
     required String personId,
     required String name,
+    List<String> sourceRoots = const <String>[],
   }) async {
     final db = await load(databaseDirectory);
     FacePerson? person;
@@ -756,6 +1474,134 @@ class FaceDatabaseService {
     person.name = name.trim().isEmpty ? 'شخص' : name.trim();
     person.updatedAt = DateTime.now();
     await save(databaseDirectory, db);
+
+    await _syncPersonToPortableManifests(
+      databaseDirectory: databaseDirectory,
+      sourceRoots: sourceRoots,
+      personId: personId,
+    );
+  }
+
+  Future<void> _syncPersonToPortableManifests({
+    required String databaseDirectory,
+    required List<String> sourceRoots,
+    required String personId,
+  }) async {
+    final db = await load(databaseDirectory);
+    FacePerson? person;
+    for (final candidate in db.persons) {
+      if (candidate.id == personId) {
+        person = candidate;
+        break;
+      }
+    }
+    if (person == null) return;
+
+    await _forEachPortableManifest(
+      databaseDirectory: databaseDirectory,
+      sourceRoots: sourceRoots,
+      action: (file, archive) async {
+        var changed = false;
+        for (final item in archive.persons) {
+          if (item.id != personId) continue;
+          if (item.name != person!.name ||
+              item.updatedAt.isBefore(person.updatedAt)) {
+            item.name = person.name;
+            item.updatedAt = person.updatedAt;
+            item.coverRootKey = person.coverRootKey;
+            item.coverRelativePath = person.coverRelativePath;
+            changed = true;
+          }
+        }
+        return changed;
+      },
+    );
+  }
+
+  Future<void> _removePersonFromPortableManifests({
+    required String databaseDirectory,
+    required List<String> sourceRoots,
+    required String personId,
+  }) async {
+    await _forEachPortableManifest(
+      databaseDirectory: databaseDirectory,
+      sourceRoots: sourceRoots,
+      action: (file, archive) async {
+        var changed = false;
+        final beforePersons = archive.persons.length;
+        archive.persons.removeWhere((p) => p.id == personId);
+        if (archive.persons.length != beforePersons) changed = true;
+
+        final beforeFaces = archive.faces.length;
+        archive.faces.removeWhere((f) => f.personId == personId);
+        if (archive.faces.length != beforeFaces) changed = true;
+
+        final beforeRejections = archive.rejections.length;
+        archive.rejections.removeWhere((r) => r.personId == personId);
+        if (archive.rejections.length != beforeRejections) changed = true;
+
+        return changed;
+      },
+    );
+  }
+
+  Future<void> _forEachPortableManifest({
+    required String databaseDirectory,
+    required List<String> sourceRoots,
+    required Future<bool> Function(File file, FaceDatabase archive) action,
+  }) async {
+    final roots = <String>{
+      databaseDirectory,
+      ...sourceRoots,
+    };
+
+    final processed = <String>{};
+
+    for (final root in roots) {
+      final directory = Directory(root);
+      if (!await directory.exists()) continue;
+
+      try {
+        await for (final entity in directory.list(
+          recursive: true,
+          followLinks: false,
+        )) {
+          if (entity is! File || p.basename(entity.path) != fileName) {
+            continue;
+          }
+
+          final path = p.normalize(entity.path);
+          if (!processed.add(path)) continue;
+
+          try {
+            final decoded = jsonDecode(await entity.readAsString());
+            if (decoded is! Map || decoded['archive'] != true) continue;
+
+            final archive = FaceDatabase.fromJson(
+              Map<String, dynamic>.from(decoded),
+            );
+
+            final changed = await action(entity, archive);
+            if (!changed) continue;
+
+            final json = archive.toJson()..['archive'] = true;
+            final temp = File('${entity.path}.tmp');
+            await temp.writeAsString(
+              const JsonEncoder.withIndent('  ').convert(json),
+              encoding: utf8,
+              flush: true,
+            );
+
+            if (await entity.exists()) await entity.delete();
+            await temp.rename(entity.path);
+          } catch (_) {
+            // Ignore one invalid manifest and continue with the others.
+          }
+        }
+      } catch (_) {
+        // Ignore an inaccessible root.
+      }
+    }
   }
 
   Future<FaceDatabase> loadForUi(String databaseDirectory) =>
@@ -775,8 +1621,10 @@ class FaceDatabaseService {
 
   static Future<String> fingerprintOf(String path) async {
     try {
-      final stat = await File(path).stat();
-      return '${stat.size}:${stat.modified.microsecondsSinceEpoch}';
+      final file = File(path);
+      if (!await file.exists()) return 'missing';
+      final digest = sha256.convert(await file.readAsBytes());
+      return 'sha256:${digest.toString()}';
     } catch (_) {
       return 'missing';
     }
@@ -837,7 +1685,10 @@ class FaceDatabaseService {
     return result;
   }
 
-  FaceMatchResult? findBestPerson(FaceDatabase db, List<double> embedding) {
+  FaceMatchResult? findBestPerson(
+    FaceDatabase db,
+    List<double> embedding,
+  ) {
     if (embedding.length < 8 || db.persons.isEmpty) {
       return null;
     }
@@ -848,6 +1699,7 @@ class FaceDatabaseService {
 
     FacePerson? bestPerson;
     var bestScore = -1.0;
+    var secondBestScore = -1.0;
 
     for (final person in db.persons) {
       var score = -1.0;
@@ -858,15 +1710,30 @@ class FaceDatabaseService {
       }
 
       final personExemplars = exemplars[person.id];
-      if (personExemplars != null) {
-        for (final exemplar in personExemplars) {
-          score = math.max(score, cosine(normalized, exemplar));
+      if (personExemplars != null && personExemplars.isNotEmpty) {
+        final exemplarScores = personExemplars
+            .map((exemplar) => cosine(normalized, exemplar))
+            .toList()
+          ..sort((a, b) => b.compareTo(a));
+
+        // The strongest historical sample is useful, but a second strong
+        // sample prevents one noisy exemplar from taking over the identity.
+        if (exemplarScores.isNotEmpty) {
+          score = math.max(score, exemplarScores.first);
+        }
+
+        if (exemplarScores.length >= 2) {
+          final top2 = (exemplarScores[0] + exemplarScores[1]) / 2;
+          score = math.max(score, top2);
         }
       }
 
       if (score > bestScore) {
+        secondBestScore = bestScore;
         bestScore = score;
         bestPerson = person;
+      } else if (score > secondBestScore) {
+        secondBestScore = score;
       }
     }
 
@@ -874,19 +1741,37 @@ class FaceDatabaseService {
       return null;
     }
 
-    return FaceMatchResult(person: bestPerson, similarity: bestScore);
+    // Do not force a decision when two identities are almost equally close.
+    // This is the main protection against silently swapping two people.
+    if (secondBestScore >= recognitionThreshold &&
+        bestScore - secondBestScore < 0.035) {
+      return null;
+    }
+
+    return FaceMatchResult(
+      person: bestPerson,
+      similarity: bestScore,
+    );
   }
+
 
   FacePerson? _findPerson(
     List<double> embedding,
     Map<String, List<double>> prototypes,
     Map<String, List<List<double>>> exemplars,
-    FaceDatabase db,
-  ) {
+    FaceDatabase db, {
+    String? fingerprint,
+  }) {
     FacePerson? bestPerson;
     var bestScore = -1.0;
+    var secondBestScore = -1.0;
 
     for (final person in db.persons) {
+      if (fingerprint != null &&
+          _isRejected(db, fingerprint, person.id)) {
+        continue;
+      }
+
       var score = -1.0;
 
       final prototype = prototypes[person.id];
@@ -896,33 +1781,47 @@ class FaceDatabaseService {
 
       final personExemplars = exemplars[person.id];
 
-      if (personExemplars != null) {
-        for (final exemplar in personExemplars) {
-          score = math.max(score, cosine(embedding, exemplar));
+      if (personExemplars != null && personExemplars.isNotEmpty) {
+        final exemplarScores = personExemplars
+            .map((exemplar) => cosine(embedding, exemplar))
+            .toList()
+          ..sort((a, b) => b.compareTo(a));
+
+        if (exemplarScores.isNotEmpty) {
+          score = math.max(score, exemplarScores.first);
+        }
+
+        if (exemplarScores.length >= 2) {
+          final top2 = (exemplarScores[0] + exemplarScores[1]) / 2;
+          score = math.max(score, top2);
         }
       }
 
       if (score > bestScore) {
+        secondBestScore = bestScore;
         bestScore = score;
         bestPerson = person;
+      } else if (score > secondBestScore) {
+        secondBestScore = score;
       }
     }
 
     if (bestPerson == null) return null;
 
-    // A real historical face gets a slightly more permissive threshold than
-    // the mean prototype. This improves matching when the same person appears
-    // with glasses, beard, different age, pose or lighting.
-    if (bestScore >= exemplarThreshold) {
-      return bestPerson;
+    if (bestScore < recognitionThreshold) {
+      return null;
     }
 
-    if (bestScore >= recognitionThreshold) {
-      return bestPerson;
+    // Never silently assign an ambiguous face to whichever person happens
+    // to have the highest score.
+    if (secondBestScore >= recognitionThreshold &&
+        bestScore - secondBestScore < 0.035) {
+      return null;
     }
 
-    return null;
+    return bestPerson;
   }
+
 
   double _coverScoreForPerson(FaceDatabase db, String personId) {
     final person = db.persons.firstWhere(
