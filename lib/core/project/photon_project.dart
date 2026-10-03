@@ -159,10 +159,31 @@ class PhotonProject {
           selectedIndex = 0;
         }
 
+        final selectedIndices = <int>{};
+        final rawSelectedIndices = d['selectedIndices'];
+        if (rawSelectedIndices is List) {
+          for (final value in rawSelectedIndices) {
+            final index = int.tryParse(value.toString());
+            if (index != null && index >= 0 && index < items.length) {
+              selectedIndices.add(index);
+            }
+          }
+        }
+
+        // فایل‌های قدیمی فقط selectedIndex داشتند. در این حالت همان
+        // عکس اصلی را به عنوان تنها عکس انتخاب‌شده نگه می‌داریم.
+        if (selectedIndices.isEmpty) {
+          selectedIndices.add(selectedIndex);
+        }
+
+        // عکس اصلی همیشه باید داخل انتخاب‌ها باشد.
+        selectedIndices.add(selectedIndex);
+
         loadedDuplicates.add(
           DuplicateGroup(
             items: items,
             selectedIndex: selectedIndex,
+            selectedIndices: selectedIndices,
             bestScore: _double(d['bestScore']),
             analyzed: d['analyzed'] == true,
           ),
@@ -381,6 +402,7 @@ class PhotonProject {
     return {
       'itemPaths': group.items.map((e) => e.path).toList(),
       'selectedIndex': group.selectedIndex,
+      'selectedIndices': group.selectedIndices.toList()..sort(),
       'bestScore': group.bestScore,
       'analyzed': group.analyzed,
     };

@@ -58,9 +58,16 @@ class TransferService {
     final duplicateFiles = <String>{};
 
     for (final group in duplicateGroups) {
+      // عکس منتخب اصلی همیشه باید وارد Apply شود، حتی اگر در
+      // selectedIndices تیک نخورده باشد.
+      if (group.selectedIndex >= 0 &&
+          group.selectedIndex < group.items.length) {
+        selectedDuplicateFiles.add(_key(group.items[group.selectedIndex].path));
+      }
+
       for (final index in group.selectedIndices) {
         if (index >= 0 && index < group.items.length) {
-          selectedDuplicateFiles.add(group.items[index].path);
+          selectedDuplicateFiles.add(_key(group.items[index].path));
         }
       }
 
@@ -302,11 +309,53 @@ class TransferService {
       }
     }
 
+    // فقط این فایل‌ها مجاز به Apply هستند:
+    // - عکس اصلی هر گروه تکراری
+    // - عکس‌هایی که کاربر در همان گروه تیک زده است
+    // - عکس‌های معمولی که isSelected=true دارند
+    //
+    // این مجموعه عمداً در خود execute دوباره ساخته می‌شود تا اگر عملیات
+    // قدیمی در پروژه مانده باشد، یک Apply جدید نتواند فایلِ دیگر را منتقل کند.
+    final allowedSourcePaths = <String>{};
+
+    for (final group in duplicateGroups) {
+      // عکس اصلی همیشه باید منتقل شود.
+      if (group.selectedIndex >= 0 &&
+          group.selectedIndex < group.items.length) {
+        allowedSourcePaths.add(_key(group.items[group.selectedIndex].path));
+      }
+
+      // تمام عکس‌های تیک‌خورده نیز منتقل می‌شوند.
+      for (final index in group.selectedIndices) {
+        if (index >= 0 && index < group.items.length) {
+          allowedSourcePaths.add(_key(group.items[index].path));
+        }
+      }
+    }
+
+    final duplicatePathSet = <String>{};
+    for (final group in duplicateGroups) {
+      for (final item in group.items) {
+        duplicatePathSet.add(_key(item.path));
+      }
+    }
+
+    for (final group in groups) {
+      for (final item in group.items) {
+        final key = _key(item.path);
+        if (!duplicatePathSet.contains(key) && item.isSelected) {
+          allowedSourcePaths.add(key);
+        }
+      }
+    }
+
+    final expectedType = settings.moveFiles
+        ? ProjectOperationType.move
+        : ProjectOperationType.copy;
+
     final transferOperations = operations.where((operation) {
-      return operation.type ==
-          (settings.moveFiles
-              ? ProjectOperationType.move
-              : ProjectOperationType.copy);
+      return operation.type == expectedType &&
+          allowedSourcePaths.contains(_key(operation.sourcePath));
     }).toList();
 
     final itemByPath = <String, MediaItem>{};
@@ -417,7 +466,9 @@ class TransferService {
       return results;
     }
 
-    // metadata همچنان مطابق رفتار قبلی ذخیره می‌شود.
+    // Metadata باید همیشه کنار پوشه مقصد وجود داشته باشد.
+    // حتی اگر گروه هیچ دسته‌بندی یا توضیحی نداشته باشد، فایل
+    // .photonamger.json به عنوان اطلاعات پوشه ساخته می‌شود.
     for (final timeline in groups) {
       try {
         final folder = await _resolveGroupFolder(
@@ -440,24 +491,34 @@ class TransferService {
         faceDatabaseDirectory.trim().isNotEmpty) {
       try {
         final directories = <String>{};
-        final archiveItems = <MediaItem>[];
+        final archiveItemsByPath = <String, MediaItem>{};
 
-        for (final timeline in groups) {
-          final folder = await _resolveGroupFolder(
-            group: timeline,
-            settings: settings,
-          );
-          if (await folder.exists()) {
-            directories.add(folder.path);
-            archiveItems.addAll(timeline.items);
-          }
+        // فقط فایل‌هایی که واقعاً در این Apply مجاز به انتقال بوده‌اند
+        // وارد archive می‌شوند. بنابراین duplicateهای بدون تیک هرگز
+        // باعث ساخته‌شدن archive در پوشه مبدأ نمی‌شوند.
+        for (final operation in transferOperations) {
+          if (!operation.isFinished) continue;
+
+          final item = itemByPath[_key(operation.sourcePath)];
+          if (item == null) continue;
+
+          final destinationDirectory = p.dirname(operation.destinationPath);
+          final destinationFile = File(operation.destinationPath);
+          if (!await destinationFile.exists()) continue;
+
+          directories.add(destinationDirectory);
+          archiveItemsByPath[_key(operation.destinationPath)] = item;
+
+          // MediaItem بعد از انتقال مسیر جدید را دارد؛ برای export باید
+          // همین مسیر مقصد را به سرویس Face بدهیم.
+          item.updatePath(operation.destinationPath);
         }
 
-        if (directories.isNotEmpty && archiveItems.isNotEmpty) {
+        if (directories.isNotEmpty) {
           await const FaceDatabaseService().exportPortableArchives(
             databaseDirectory: faceDatabaseDirectory,
             sourceRoots: directories.toList(),
-            items: archiveItems,
+            items: archiveItemsByPath.values.toList(),
           );
         }
       } catch (_) {
@@ -670,8 +731,8 @@ class TransferService {
     TimelineGroup group,
     String directoryPath,
   ) async {
-    final metadata = group.metadata;
-    if (metadata == null) return;
+    // فایل metadata باید حتی برای گروه بدون دسته‌بندی هم ساخته شود.
+    final metadata = group.metadata ?? const GroupMetadata();
 
     final normalizedCategories = metadata.categories
         .map(
