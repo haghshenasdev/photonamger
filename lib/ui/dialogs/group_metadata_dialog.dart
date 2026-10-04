@@ -11,11 +11,15 @@ class GroupMetadataDialog extends StatefulWidget {
   /// تمام گروه‌های موجود پروژه برای ساخت درخت دسته‌بندی‌ها.
   final List<TimelineGroup> groups;
 
+  /// دسته‌بندی‌های واردشده از آرشیو هارد، حتی اگر هنوز در گروه جدید استفاده نشده باشند.
+  final List<List<String>> availableCategoryPaths;
+
   const GroupMetadataDialog({
     super.key,
     required this.groupTitle,
     this.metadata,
     this.groups = const <TimelineGroup>[],
+    this.availableCategoryPaths = const <List<String>>[],
   });
 
   @override
@@ -29,7 +33,10 @@ class _GroupMetadataDialogState extends State<GroupMetadataDialog> {
   final Map<String, bool> _expandedSuggestions = <String, bool>{};
 
   List<CategoryNode> get _categoryTree =>
-      CategoryTreeBuilder().build(widget.groups);
+      CategoryTreeBuilder().build(
+        widget.groups,
+        extraPaths: widget.availableCategoryPaths,
+      );
 
   /// همه مسیرهای موجود را به شکل یکتا برمی‌گرداند.
   List<List<String>> get _existingPaths {

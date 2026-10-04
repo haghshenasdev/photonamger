@@ -1,10 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:fvp/fvp.dart' as fvp;
+import 'package:video_player_win/video_player_win.dart';
 import 'ui/pages/home_page.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  fvp.registerWith();
+  // VideoPlayerWin.registerWith();
   runApp(const MediaOrganizerApp());
 }
 
@@ -17,11 +17,8 @@ class MediaOrganizerApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Archino',
       theme: FluentThemeData(brightness: Brightness.light),
-
       locale: const Locale('fa'),
-
       supportedLocales: const [Locale('fa')],
-
       home: const HomePage(),
     );
   }

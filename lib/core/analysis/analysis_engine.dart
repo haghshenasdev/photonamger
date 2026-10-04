@@ -259,8 +259,12 @@ class AnalysisEngine {
     AnalysisCallback? callback, {
     void Function(TimelineGroup group, List<DuplicateGroup> duplicates)?
     onGroupDuplicates,
+    List<DuplicateGroup> cachedDuplicateGroups = const [],
+    Set<String> cachedAnalysisPaths = const <String>{},
   }) async {
-    duplicateGroups.clear();
+    duplicateGroups
+      ..clear()
+      ..addAll(cachedDuplicateGroups);
 
     for (int i = 0; i < timelineGroups.length; i++) {
       if (!await controller.checkpoint()) {
@@ -269,8 +273,18 @@ class AnalysisEngine {
 
       final group = timelineGroups[i];
 
+      final pendingItems = cachedAnalysisPaths.isEmpty
+          ? group.items
+          : group.items
+              .where((item) => !cachedAnalysisPaths.contains(_pathKey(item.path)))
+              .toList();
+
+      if (pendingItems.isEmpty) {
+        continue;
+      }
+
       final result = await temporalBurstDetector.findBursts(
-        group.items,
+        pendingItems,
         controller: controller,
         maxGap: TemporalBurstDetector.defaultMaxGap,
         minGroupSize: TemporalBurstDetector.defaultMinGroupSize,
@@ -356,6 +370,8 @@ class AnalysisEngine {
     }
   }
 
+  String _pathKey(String path) => path.replaceAll('\\', '/').toLowerCase();
+
   // ===========================================================================
   // MAIN ANALYSIS
   // ===========================================================================
@@ -367,6 +383,8 @@ class AnalysisEngine {
     onGroupDuplicates,
     List<String>? sourceRootsForFaces,
     String? faceDatabaseDirectory,
+    List<DuplicateGroup> cachedDuplicateGroups = const [],
+    Set<String> cachedAnalysisPaths = const <String>{},
   }) async {
     if (_running) {
       throw Exception('Analysis already running.');
@@ -446,6 +464,8 @@ class AnalysisEngine {
       await _findTemporalBursts(
         onProgress,
         onGroupDuplicates: onGroupDuplicates,
+        cachedDuplicateGroups: cachedDuplicateGroups,
+        cachedAnalysisPaths: cachedAnalysisPaths,
       );
 
       if (controller.isCancelled) {

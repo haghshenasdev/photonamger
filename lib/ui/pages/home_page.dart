@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:path/path.dart' as p;
 
 import 'package:fgphoto/core/analysis/analysis_progress.dart';
 import 'package:fgphoto/core/analysis/analysis_stage.dart';
@@ -41,6 +42,7 @@ import 'package:fgphoto/core/analysis/quality_scorer.dart';
 import 'package:fgphoto/core/analysis/analysis_controller.dart';
 import 'package:fgphoto/core/analysis/face_database.dart';
 import 'package:fgphoto/core/metadata/category_learning_service.dart';
+import 'package:fgphoto/core/portable/portable_project_database_service.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -63,9 +65,18 @@ class _HomePageState extends State<HomePage> {
 
   FaceDatabase _faceDatabase = FaceDatabase();
   String? _faceDatabaseDirectory;
+  String? _workingDatabaseDirectory;
+  List<List<String>> _categoryCatalogPaths = <List<String>>[];
   String? _selectedFacePersonId;
   int _rightPanelTab = 0;
   List<FaceMergeSuggestion> _faceMergeSuggestions = const [];
+
+  // Portable archive currently associated with the opened source folders.
+  String? _portableArchiveRoot;
+  PortableProjectSnapshot? _portableSnapshot;
+  List<DuplicateGroup> _cachedPortableDuplicateGroups = const [];
+  Set<String> _cachedPortableAnalysisPaths = <String>{};
+  bool _faceDatabaseDirty = false;
 
   CategoryLearningModel _categoryLearningModel = const CategoryLearningModel();
 
@@ -101,44 +112,51 @@ class _HomePageState extends State<HomePage> {
   }
 
   String _getFaceDatabaseDirectory() {
-    // Once a project has been saved, keep the face database beside the
-    // project file. This is important when the user later scans another
-    // source folder: the same people database must continue to be used.
+    if (_workingDatabaseDirectory != null &&
+        _workingDatabaseDirectory!.trim().isNotEmpty) {
+      return _workingDatabaseDirectory!;
+    }
+
     if (_projectPath != null && _projectPath!.trim().isNotEmpty) {
       return File(_projectPath!).parent.path;
     }
 
-    // Before the first project save, fall back to the first source root.
     if (sourcePaths.isNotEmpty) {
       return sourcePaths.first;
     }
 
-    return Directory.current.path;
+    return Directory.systemTemp.path;
+  }
+
+  Future<void> _ensureWorkingDatabaseDirectory() async {
+    if (_workingDatabaseDirectory != null &&
+        _workingDatabaseDirectory!.trim().isNotEmpty) {
+      await Directory(_workingDatabaseDirectory!).create(recursive: true);
+      return;
+    }
+
+    if (_projectPath != null && _projectPath!.trim().isNotEmpty) {
+      _workingDatabaseDirectory = File(_projectPath!).parent.path;
+      await Directory(_workingDatabaseDirectory!).create(recursive: true);
+      return;
+    }
+
+    final safeId = DateTime.now().microsecondsSinceEpoch.toString();
+    _workingDatabaseDirectory = p.join(
+      Directory.systemTemp.path,
+      'Archino',
+      'working_$safeId',
+    );
+    await Directory(_workingDatabaseDirectory!).create(recursive: true);
   }
 
   Future<void> _loadFaceDatabase() async {
+    await _ensureWorkingDatabaseDirectory();
+
     final directory = _getFaceDatabaseDirectory();
     const service = FaceDatabaseService();
 
-    var db = await service.load(directory);
-
-    // Backward compatibility:
-    // older versions stored the database in sourcePaths.first. When a
-    // project is now saved beside another folder, move/copy the existing
-    // identity database into the project directory so names survive.
-    if (db.persons.isEmpty &&
-        db.faces.isEmpty &&
-        sourcePaths.isNotEmpty &&
-        _projectPath != null) {
-      final legacyDirectory = sourcePaths.first;
-      if (_normalizePath(legacyDirectory) != _normalizePath(directory)) {
-        final legacy = await service.load(legacyDirectory);
-        if (legacy.persons.isNotEmpty || legacy.faces.isNotEmpty) {
-          db = legacy;
-          await service.save(directory, db);
-        }
-      }
-    }
+    final db = await service.load(directory);
 
     if (!mounted) return;
 
@@ -151,25 +169,181 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  Future<void> _loadCategoryLearningModel() async {
-    final directory = _projectPath != null && _projectPath!.trim().isNotEmpty
-        ? File(_projectPath!).parent.path
-        : (sourcePaths.isNotEmpty ? sourcePaths.first : Directory.current.path);
+  Future<void> _importArchiveFromDisk() async {
+    final root = await FolderService.pickFolder();
+    if (root == null || root.trim().isEmpty) return;
 
-    const service = CategoryLearningService();
-    var model = await service.load(directory);
+    try {
+      await _ensureWorkingDatabaseDirectory();
 
-    // مدل از گروه‌های فعلی بازسازی می‌شود تا دسته‌بندی‌های دستی جدید
-    // بلافاصله برای پوشه‌های قدیمی و اسکن‌های بعدی قابل استفاده باشند.
-    if (groups.isNotEmpty) {
-      model = service.rebuild(groups);
-      await service.save(directory, model);
+      const portable = PortableProjectDatabaseService();
+      final working = await const FaceDatabaseService().load(
+        _getFaceDatabaseDirectory(),
+      );
+
+      var snapshot = await portable.importIntoWorkingDatabase(
+        root: root,
+        workingDatabase: working,
+        workingDatabaseDirectory: _getFaceDatabaseDirectory(),
+        currentCategoryPaths: _categoryCatalogPaths,
+        currentLearningModel: _categoryLearningModel,
+      );
+
+      // Backward compatibility: older builds stored face information as
+      // .archino_faces.json in the selected archive tree.
+      if (snapshot == null) {
+        final legacyService = const FaceDatabaseService();
+        final changed = await legacyService.importPortableArchives(
+          sourceRoots: [root],
+          database: working,
+        );
+
+        if (changed ||
+            working.persons.isNotEmpty ||
+            working.faces.isNotEmpty) {
+          await legacyService.save(
+            _getFaceDatabaseDirectory(),
+            working,
+          );
+
+          snapshot = PortableProjectSnapshot(
+            database: working,
+            categoryPaths: _categoryCatalogPaths,
+            learningModel: _categoryLearningModel,
+          );
+        }
+      }
+
+      if (snapshot == null) {
+        throw StateError(
+          'در مسیر انتخاب‌شده دیتابیس archino.sqlite یا آرشیو قدیمی قابل استفاده پیدا نشد.',
+        );
+      }
+
+      final importedSnapshot = snapshot;
+      final learning = CategoryLearningService();
+      final currentGroupsModel = learning.rebuild(groups);
+      final mergedLearning = learning.merge(
+        importedSnapshot.learningModel,
+        currentGroupsModel,
+      );
+
+      if (!mounted) return;
+
+      _portableArchiveRoot = root;
+      _portableSnapshot = importedSnapshot;
+      _cachedPortableDuplicateGroups = await const PortableProjectDatabaseService()
+          .bindDuplicateGroups(snapshot: importedSnapshot, items: mediaItems);
+      _cachedPortableAnalysisPaths = await const PortableProjectDatabaseService()
+          .bindAnalysisPaths(snapshot: importedSnapshot, items: mediaItems);
+
+      setState(() {
+        _faceDatabase = importedSnapshot.database;
+        _faceDatabaseDirectory = _getFaceDatabaseDirectory();
+        _faceMergeSuggestions =
+            const FaceDatabaseService().findMergeSuggestions(_faceDatabase);
+        _categoryCatalogPaths = _uniqueCategoryPaths([
+          ..._categoryCatalogPaths,
+          ...importedSnapshot.categoryPaths,
+          ..._categoryPathsFromGroups(),
+        ]);
+        _categoryLearningModel = mergedLearning;
+      });
+
+      await learning.save(_getFaceDatabaseDirectory(), mergedLearning);
+      _scheduleProjectSave();
+
+      if (!mounted) return;
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          title: const Text('اطلاعات آرشیو بارگذاری شد'),
+          content: Text(
+            '${_faceDatabase.persons.length} شخص، '
+            '${_categoryCatalogPaths.length} مسیر دسته‌بندی از آرشیو خوانده شد.',
+          ),
+          severity: InfoBarSeverity.success,
+          onClose: close,
+        ),
+      );
+    } catch (e, stackTrace) {
+      debugPrint('Archive import error: $e');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          title: const Text('خطا در بارگذاری آرشیو'),
+          content: Text(e.toString()),
+          severity: InfoBarSeverity.error,
+          onClose: close,
+        ),
+      );
     }
+  }
+
+  List<List<String>> _categoryPathsFromGroups() {
+    final result = <List<String>>[];
+    for (final group in groups) {
+      for (final path in group.categories) {
+        result.add(List<String>.from(path));
+      }
+    }
+    return result;
+  }
+
+  List<List<String>> _uniqueCategoryPaths(
+    Iterable<List<String>> paths,
+  ) {
+    final result = <String, List<String>>{};
+
+    for (final raw in paths) {
+      final path = raw
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+      if (path.isEmpty) continue;
+
+      final key = path
+          .map(
+            (e) => e
+                .toLowerCase()
+                .replaceAll('ي', 'ی')
+                .replaceAll('ى', 'ی')
+                .replaceAll('ك', 'ک')
+                .replaceAll(RegExp(r'\s+'), ' '),
+          )
+          .join('\u0000');
+
+      result.putIfAbsent(key, () => path);
+    }
+
+    return result.values.toList();
+  }
+
+  Future<void> _loadCategoryLearningModel() async {
+    await _ensureWorkingDatabaseDirectory();
+
+    final directory = _getFaceDatabaseDirectory();
+    const service = CategoryLearningService();
+    final model = await service.load(directory);
+
+    final merged = service.merge(
+      model,
+      service.rebuild(groups),
+    );
 
     if (!mounted) return;
 
     setState(() {
-      _categoryLearningModel = model;
+      _categoryLearningModel = merged;
+      _categoryCatalogPaths = _uniqueCategoryPaths([
+        ..._categoryCatalogPaths,
+        ..._categoryPathsFromGroups(),
+      ]);
     });
   }
 
@@ -183,7 +357,10 @@ class _HomePageState extends State<HomePage> {
     const service = CategoryLearningService();
 
     // همیشه قبل از پیشنهاد، آخرین دسته‌بندی‌های دستی پروژه را وارد مدل می‌کنیم.
-    final model = service.rebuild(groups);
+    final model = service.merge(
+      _categoryLearningModel,
+      service.rebuild(groups),
+    );
 
     if (model.rules.isEmpty) {
       if (!mounted) return;
@@ -253,7 +430,9 @@ class _HomePageState extends State<HomePage> {
       sourceRoots: sourcePaths,
     );
 
+    _faceDatabaseDirty = true;
     await _loadFaceDatabase();
+    if (mounted) setState(() {});
   }
 
 
@@ -276,6 +455,7 @@ class _HomePageState extends State<HomePage> {
       item.faces.removeWhere((face) => face.personId == personId);
       item.faceCount = item.faces.length;
 
+      _faceDatabaseDirty = true;
       await _loadFaceDatabase();
 
       if (!mounted) return;
@@ -343,6 +523,7 @@ class _HomePageState extends State<HomePage> {
         ),
       );
 
+      _faceDatabaseDirty = true;
       await _loadFaceDatabase();
       setState(() {});
       _scheduleProjectSave();
@@ -441,6 +622,7 @@ class _HomePageState extends State<HomePage> {
       // - نام شخص اصلی حفظ شده باشد
       // - پیشنهادهای Merge دوباره محاسبه شوند
       // ============================================================
+      _faceDatabaseDirty = true;
       await _loadFaceDatabase();
 
       if (!mounted) return;
@@ -632,6 +814,7 @@ class _HomePageState extends State<HomePage> {
             onSaveProject: _saveProject,
             onSaveProjectAs: _saveProjectAs,
             onResumeOperations: _resumePendingOperations,
+            onImportArchive: _importArchiveFromDisk,
           ),
         ),
         content: Column(
@@ -664,7 +847,12 @@ class _HomePageState extends State<HomePage> {
                       },
 
                       onGroupUpdated: (group) {
-                        setState(() {});
+                        setState(() {
+                          _categoryCatalogPaths = _uniqueCategoryPaths([
+                            ..._categoryCatalogPaths,
+                            ...group.categories,
+                          ]);
+                        });
                         _scheduleProjectSave();
                       },
 
@@ -679,6 +867,7 @@ class _HomePageState extends State<HomePage> {
                         mergeGroups(selectedGroups);
                       },
                       onSuggestCategories: _suggestCategoriesFromTitles,
+                      availableCategoryPaths: _categoryCatalogPaths,
                     ),
                   ),
 
@@ -805,7 +994,7 @@ class _HomePageState extends State<HomePage> {
 
                         await _enqueueProjectSave();
 
-                        await transferService.execute(
+                        final transferResults = await transferService.execute(
                           groups: groups,
                           duplicateGroups: duplicateGroups,
                           settings: settings,
@@ -839,12 +1028,38 @@ class _HomePageState extends State<HomePage> {
                           },
                         );
 
+                        await const PortableProjectDatabaseService().syncToRoot(
+                          root: settings.outputFolder,
+                          workingDatabase: _faceDatabase,
+                          transferredItems: transferResults
+                              .map((result) => result.item)
+                              .toList(),
+                          categoryPaths: _uniqueCategoryPaths([
+                            ..._categoryCatalogPaths,
+                            ..._categoryPathsFromGroups(),
+                          ]),
+                          learningModel: CategoryLearningService().merge(
+                            _categoryLearningModel,
+                            CategoryLearningService().rebuild(groups),
+                          ),
+                          duplicateGroups: duplicateGroups,
+                          analyzedItems: transferResults
+                              .map((result) => result.item)
+                              .toList(),
+                        );
+
                         await _enqueueProjectSave();
 
                         if (!mounted) return;
 
                         setState(() {
+                          _categoryCatalogPaths = _uniqueCategoryPaths([
+                            ..._categoryCatalogPaths,
+                            ..._categoryPathsFromGroups(),
+                          ]);
                           progress = null;
+                          _faceDatabaseDirty = false;
+                          _portableArchiveRoot = settings.outputFolder;
                         });
                       } catch (e, stackTrace) {
                         debugPrint('Transfer error: $e');
@@ -895,7 +1110,7 @@ class _HomePageState extends State<HomePage> {
                 const SizedBox(width: 8),
 
                 Button(
-                  onPressed: groups.any((group) => group.edited)
+                  onPressed: groups.any((group) => group.edited) || _faceDatabaseDirty
                       ? _saveMetadataOnly
                       : null,
                   child: const Row(
@@ -985,7 +1200,75 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _saveInformationToPortableArchive() async {
+    var root = _portableArchiveRoot;
+
+    if (root == null || root.trim().isEmpty) {
+      root = await FolderService.pickFolder();
+      if (root == null || root.trim().isEmpty) return;
+      final portable = const PortableProjectDatabaseService();
+      if (!await portable.exists(root)) {
+        await Directory(root).create(recursive: true);
+      }
+    }
+
+    try {
+      final portable = const PortableProjectDatabaseService();
+      await portable.syncToRoot(
+        root: root!,
+        workingDatabase: _faceDatabase,
+        transferredItems: const [],
+        categoryPaths: _uniqueCategoryPaths([
+          ..._categoryCatalogPaths,
+          ..._categoryPathsFromGroups(),
+        ]),
+        learningModel: CategoryLearningService().merge(
+          _categoryLearningModel,
+          CategoryLearningService().rebuild(groups),
+        ),
+        duplicateGroups: duplicateGroups,
+        analyzedItems: mediaItems,
+      );
+
+      _portableArchiveRoot = root;
+      _faceDatabaseDirty = false;
+
+      if (!mounted) return;
+      setState(() {});
+
+      await displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          title: const Text('اطلاعات روی هارد ذخیره شد'),
+          content: Text('دیتابیس آرشینو در $root به‌روزرسانی شد.'),
+          severity: InfoBarSeverity.success,
+          onClose: close,
+        ),
+      );
+    } catch (e, stackTrace) {
+      debugPrint('Portable information save error: $e');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+      await displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          title: const Text('خطا در ذخیره اطلاعات روی هارد'),
+          content: Text(e.toString()),
+          severity: InfoBarSeverity.error,
+          onClose: close,
+        ),
+      );
+    }
+  }
+
   Future<void> _saveMetadataOnly() async {
+    final hasFaceChanges = _faceDatabaseDirty;
+
+    if (hasFaceChanges) {
+      await _saveInformationToPortableArchive();
+    }
+
     final editedGroups = groups
         .where(
           (group) =>
@@ -997,6 +1280,8 @@ class _HomePageState extends State<HomePage> {
         .toList();
 
     if (editedGroups.isEmpty) {
+      if (hasFaceChanges) return;
+
       await displayInfoBar(
         context,
         builder: (context, close) {
@@ -1215,6 +1500,62 @@ class _HomePageState extends State<HomePage> {
     _scheduleProjectSave();
   }
 
+  Future<PortableProjectSnapshot?> _loadPortableArchiveForSources(
+    List<MediaItem> items,
+  ) async {
+    final portable = const PortableProjectDatabaseService();
+    final root = await portable.findArchiveRoot(sourcePaths);
+
+    if (root == null) {
+      _portableArchiveRoot = null;
+      _portableSnapshot = null;
+      _cachedPortableDuplicateGroups = const [];
+      _cachedPortableAnalysisPaths = <String>{};
+      return null;
+    }
+
+    await _ensureWorkingDatabaseDirectory();
+    final working = await const FaceDatabaseService().load(
+      _getFaceDatabaseDirectory(),
+    );
+
+    final snapshot = await portable.importIntoWorkingDatabase(
+      root: root,
+      workingDatabase: working,
+      workingDatabaseDirectory: _getFaceDatabaseDirectory(),
+      currentCategoryPaths: _categoryCatalogPaths,
+      currentLearningModel: _categoryLearningModel,
+    );
+
+    if (snapshot == null) return null;
+
+    _portableArchiveRoot = root;
+    _portableSnapshot = snapshot;
+    _cachedPortableDuplicateGroups =
+        await portable.bindDuplicateGroups(snapshot: snapshot, items: items);
+    _cachedPortableAnalysisPaths = await portable.bindAnalysisPaths(
+      snapshot: snapshot,
+      items: items,
+    );
+
+    _faceDatabase = snapshot.database;
+    _faceDatabaseDirectory = _getFaceDatabaseDirectory();
+    _faceMergeSuggestions =
+        const FaceDatabaseService().findMergeSuggestions(_faceDatabase);
+    _categoryCatalogPaths = _uniqueCategoryPaths([
+      ..._categoryCatalogPaths,
+      ...snapshot.categoryPaths,
+    ]);
+
+    final learning = const CategoryLearningService();
+    _categoryLearningModel = learning.merge(
+      _categoryLearningModel,
+      snapshot.learningModel,
+    );
+
+    return snapshot;
+  }
+
   Future<void> scanSourceFolders() async {
     if (sourcePaths.isEmpty) {
       setState(() {
@@ -1261,6 +1602,17 @@ class _HomePageState extends State<HomePage> {
     });
 
     _faceDatabaseDirectory = _getFaceDatabaseDirectory();
+
+    // اگر مسیر انتخابی روی هارد قبلاً آرشیو شده باشد، دیتابیس مرکزی همان
+    // هارد قبل از شروع آنالیز وارد workspace می‌شود. در نتیجه تشخیص چهره
+    // و تشخیص تکراری‌ها فقط برای فایل‌هایی که cache ندارند اجرا خواهد شد.
+    try {
+      await _loadPortableArchiveForSources(files);
+    } catch (e, stackTrace) {
+      debugPrint('Portable archive auto-load error: $e');
+      debugPrintStack(stackTrace: stackTrace);
+    }
+
     await _loadFaceDatabase();
     await _loadCategoryLearningModel();
 
@@ -1481,6 +1833,8 @@ class _HomePageState extends State<HomePage> {
         mediaItems,
         sourceRootsForFaces: sourcePaths,
         faceDatabaseDirectory: _getFaceDatabaseDirectory(),
+        cachedDuplicateGroups: _cachedPortableDuplicateGroups,
+        cachedAnalysisPaths: _cachedPortableAnalysisPaths,
         onGroupDuplicates: (group, duplicates) {
           if (!mounted) return;
 
@@ -1866,9 +2220,29 @@ class _HomePageState extends State<HomePage> {
 
       if (path == null) return;
 
+      final oldWorkingDirectory = _workingDatabaseDirectory;
+
       setState(() {
         _projectPath = path;
+        _workingDatabaseDirectory = File(path).parent.path;
       });
+
+      // دیتابیس کاری چهره را از workspace موقت به کنار فایل پروژه منتقل می‌کنیم
+      // تا با باز کردن پروژه در اجرای بعدی همان هویت‌ها در دسترس باشند.
+      if (oldWorkingDirectory != null &&
+          _normalizePath(oldWorkingDirectory) !=
+              _normalizePath(_workingDatabaseDirectory!)) {
+        final oldDb = await const FaceDatabaseService().load(oldWorkingDirectory);
+        if (oldDb.persons.isNotEmpty ||
+            oldDb.faces.isNotEmpty ||
+            oldDb.scans.isNotEmpty ||
+            oldDb.rejections.isNotEmpty) {
+          await const FaceDatabaseService().save(
+            _workingDatabaseDirectory!,
+            oldDb,
+          );
+        }
+      }
 
       // مدل دسته‌بندی همراه فایل پروژه منتقل می‌شود.
       const categoryService = CategoryLearningService();
@@ -1919,6 +2293,15 @@ class _HomePageState extends State<HomePage> {
 
       _project = PhotonProject.empty('پروژه جدید');
       _projectPath = null;
+      _workingDatabaseDirectory = null;
+      _faceDatabaseDirectory = null;
+      _faceDatabase = FaceDatabase();
+      _categoryCatalogPaths = <List<String>>[];
+      _portableArchiveRoot = null;
+      _portableSnapshot = null;
+      _cachedPortableDuplicateGroups = const [];
+      _cachedPortableAnalysisPaths = <String>{};
+      _faceDatabaseDirty = false;
     });
   }
 
@@ -1954,6 +2337,7 @@ class _HomePageState extends State<HomePage> {
       setState(() {
         _project = project;
         _projectPath = path;
+        _workingDatabaseDirectory = File(path).parent.path;
 
         sourcePaths = List<String>.from(project.sourcePaths);
         mediaItems = project.mediaItems;
@@ -1961,6 +2345,11 @@ class _HomePageState extends State<HomePage> {
         duplicateGroups = project.duplicateGroups;
         selectedGroup = groups.isEmpty ? null : groups.first;
         progress = null;
+        _portableArchiveRoot = null;
+        _portableSnapshot = null;
+        _cachedPortableDuplicateGroups = const [];
+        _cachedPortableAnalysisPaths = <String>{};
+        _faceDatabaseDirty = false;
       });
 
       await ProjectRepository.rememberProjectPath(path);

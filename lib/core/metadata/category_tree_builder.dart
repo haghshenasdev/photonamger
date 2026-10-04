@@ -2,72 +2,54 @@ import '../../ui/models/category_node.dart';
 import '../../ui/models/timeline_group.dart';
 
 class CategoryTreeBuilder {
-  List<CategoryNode> build(List<TimelineGroup> groups) {
+  List<CategoryNode> build(
+    List<TimelineGroup> groups, {
+    List<List<String>> extraPaths = const <List<String>>[],
+  }) {
     final roots = <CategoryNode>[];
 
-    for (int groupIndex = 0; groupIndex < groups.length; groupIndex++) {
-      final group = groups[groupIndex];
+    void addPath(List<String> categoryPath) {
+      if (categoryPath.isEmpty) return;
 
-      if (group.categories.isEmpty) {
-        continue;
-      }
+      var currentLevel = roots;
 
-      // هر category یک مسیر مستقل است.
-      //
-      // مثال:
-      //
-      // [
-      //   ['گرگاب', 'ملاقات'],
-      //   ['تست', 'تستی'],
-      // ]
-      //
-      // بنابراین دو مسیر مستقل در Tree ساخته می‌شود.
-      for (final categoryPath in group.categories) {
-        if (categoryPath.isEmpty) {
-          continue;
+      for (final rawCategory in categoryPath) {
+        final category = rawCategory.trim();
+        if (category.isEmpty) continue;
+
+        CategoryNode? node;
+        for (final child in currentLevel) {
+          if (child.name == category) {
+            node = child;
+            break;
+          }
         }
 
-        var currentLevel = roots;
-
-        for (final rawCategory in categoryPath) {
-          final category = rawCategory.trim();
-
-          if (category.isEmpty) {
-            continue;
-          }
-
-          CategoryNode? node;
-
-          for (final child in currentLevel) {
-            if (child.name == category) {
-              node = child;
-              break;
-            }
-          }
-
-          if (node == null) {
-            node = CategoryNode(name: category);
-
-            currentLevel.add(node);
-          }
-
-          if (!node.groupIndexes.contains(groupIndex)) {
-            node.groupIndexes.add(groupIndex);
-          }
-
-          currentLevel = node.children;
+        node ??= CategoryNode(name: category);
+        if (!currentLevel.contains(node)) {
+          currentLevel.add(node);
         }
+
+        currentLevel = node.children;
       }
     }
 
-    _sort(roots);
+    for (final group in groups) {
+      for (final path in group.categories) {
+        addPath(path);
+      }
+    }
 
+    for (final path in extraPaths) {
+      addPath(path);
+    }
+
+    _sort(roots);
     return roots;
   }
 
   void _sort(List<CategoryNode> nodes) {
     nodes.sort((a, b) => a.name.compareTo(b.name));
-
     for (final node in nodes) {
       _sort(node.children);
     }

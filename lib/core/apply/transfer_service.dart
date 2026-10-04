@@ -481,51 +481,9 @@ class TransferService {
       }
     }
 
-    // --------------------------------------------------------------
-    // Portable face archive
-    // --------------------------------------------------------------
-    // بعد از اتمام Copy/Move، مسیر MediaItemها به مقصد نهایی اشاره می‌کند.
-    // اکنون embeddingها و personIdهای مربوط به همان فایل‌ها را داخل خود
-    // پوشه مقصد ذخیره می‌کنیم تا آرشیو بدون فایل پروژه هم قابل انتقال باشد.
-    if (faceDatabaseDirectory != null &&
-        faceDatabaseDirectory.trim().isNotEmpty) {
-      try {
-        final directories = <String>{};
-        final archiveItemsByPath = <String, MediaItem>{};
-
-        // فقط فایل‌هایی که واقعاً در این Apply مجاز به انتقال بوده‌اند
-        // وارد archive می‌شوند. بنابراین duplicateهای بدون تیک هرگز
-        // باعث ساخته‌شدن archive در پوشه مبدأ نمی‌شوند.
-        for (final operation in transferOperations) {
-          if (!operation.isFinished) continue;
-
-          final item = itemByPath[_key(operation.sourcePath)];
-          if (item == null) continue;
-
-          final destinationDirectory = p.dirname(operation.destinationPath);
-          final destinationFile = File(operation.destinationPath);
-          if (!await destinationFile.exists()) continue;
-
-          directories.add(destinationDirectory);
-          archiveItemsByPath[_key(operation.destinationPath)] = item;
-
-          // MediaItem بعد از انتقال مسیر جدید را دارد؛ برای export باید
-          // همین مسیر مقصد را به سرویس Face بدهیم.
-          item.updatePath(operation.destinationPath);
-        }
-
-        if (directories.isNotEmpty) {
-          await const FaceDatabaseService().exportPortableArchives(
-            databaseDirectory: faceDatabaseDirectory,
-            sourceRoots: directories.toList(),
-            items: archiveItemsByPath.values.toList(),
-          );
-        }
-      } catch (_) {
-        // Face metadata is supplementary. A failure here must not mark the
-        // already completed file transfer as failed.
-      }
-    }
+    // Face identities are synchronized once, centrally, by HomePage after
+    // all file operations have completed. This intentionally avoids creating
+    // one .archino_faces.json file beside every image folder.
 
     return results;
   }

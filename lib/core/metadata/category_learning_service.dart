@@ -157,6 +157,54 @@ class CategoryLearningService {
     await temp.rename(file.path);
   }
 
+
+  CategoryLearningModel merge(
+    CategoryLearningModel first,
+    CategoryLearningModel second,
+  ) {
+    final merged = <String, Map<String, dynamic>>{};
+
+    for (final model in [first, second]) {
+      final raw = model.toJson()['rules'];
+      if (raw is! List) continue;
+
+      for (final value in raw) {
+        if (value is! Map) continue;
+        final rule = Map<String, dynamic>.from(value);
+        final path = _stringList(rule['path']);
+        if (path.isEmpty) continue;
+
+        final key = _pathKey(path);
+        final existing = merged[key];
+        if (existing == null) {
+          merged[key] = rule;
+          continue;
+        }
+
+        final tokens = <String, int>{};
+        for (final source in [existing['tokens'], rule['tokens']]) {
+          if (source is! Map) continue;
+          for (final entry in source.entries) {
+            final token = entry.key.toString();
+            tokens[token] =
+                (tokens[token] ?? 0) + (int.tryParse(entry.value.toString()) ?? 0);
+          }
+        }
+
+        existing['tokens'] = tokens;
+        existing['samples'] =
+            (int.tryParse(existing['samples']?.toString() ?? '') ?? 0) +
+            (int.tryParse(rule['samples']?.toString() ?? '') ?? 0);
+      }
+    }
+
+    return CategoryLearningModel.fromJson({
+      'format': 'archino-category-rules',
+      'version': CategoryLearningModel.currentVersion,
+      'rules': merged.values.toList(),
+    });
+  }
+
   CategoryLearningModel rebuild(List<TimelineGroup> groups) {
     final byPath = <String, _MutableRule>{};
 

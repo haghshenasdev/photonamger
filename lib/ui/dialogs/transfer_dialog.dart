@@ -82,7 +82,7 @@ class _TransferDialogState extends State<TransferDialog> {
               Expanded(
                 child: TextBox(
                   readOnly: true,
-                  placeholder: 'خالی = اعمال در همین مسیرهای فعلی',
+                  placeholder: 'مسیر ریشه آرشیو روی هارد را انتخاب کنید',
                   controller: TextEditingController(text: outputFolder),
                 ),
               ),
@@ -98,13 +98,13 @@ class _TransferDialogState extends State<TransferDialog> {
           InfoBar(
             title: Text(
               outputFolder.isEmpty
-                  ? 'حالت اعمال درجا فعال است'
-                  : 'مسیر خروجی انتخاب شده است',
+                  ? 'انتخاب مسیر آرشیو الزامی است'
+                  : 'مسیر آرشیو انتخاب شده است',
             ),
             content: Text(
               outputFolder.isEmpty
-                  ? 'فایل‌های انتخاب‌شده در محل مناسب خودشان قرار می‌گیرند و موارد حذف‌شدنی به پوشه For Delete منتقل می‌شوند.'
-                  : 'فایل‌ها طبق ساختار انتخاب‌شده در مسیر خروجی قرار می‌گیرند.',
+                  ? 'ابتدا مسیر اصلی هارد/آرشیو را انتخاب کنید. دیتابیس archino.sqlite نیز در همین ریشه ساخته یا به‌روزرسانی می‌شود.'
+                  : 'فایل‌ها طبق ساختار انتخاب‌شده در این مسیر قرار می‌گیرند و دیتابیس مرکزی آرشینو نیز در ریشه آن به‌روزرسانی می‌شود.',
             ),
             severity: outputFolder.isEmpty
                 ? InfoBarSeverity.warning
@@ -230,7 +230,7 @@ class _TransferDialogState extends State<TransferDialog> {
         FilledButton(
           child: const Text("شروع انتقال"),
 
-          onPressed: () {
+          onPressed: outputFolder.isEmpty ? null : () {
                   Navigator.pop(
                     context,
                     ApplySettings(

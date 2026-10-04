@@ -9,6 +9,7 @@ class AppMenu extends StatefulWidget {
     required this.onSaveProject,
     required this.onSaveProjectAs,
     required this.onResumeOperations,
+    required this.onImportArchive,
   });
 
   final VoidCallback onNewProject;
@@ -16,6 +17,7 @@ class AppMenu extends StatefulWidget {
   final VoidCallback onSaveProject;
   final VoidCallback onSaveProjectAs;
   final VoidCallback onResumeOperations;
+  final VoidCallback onImportArchive;
 
   @override
   State<AppMenu> createState() => _AppMenuState();
@@ -83,6 +85,11 @@ class _AppMenuState extends State<AppMenu> {
               onPressed: widget.onSaveProjectAs,
             ),
             const MenuFlyoutSeparator(),
+            MenuFlyoutItem(
+              leading: const Icon(FluentIcons.database),
+              text: const Text('بارگذاری اطلاعات از آرشیو هارد'),
+              onPressed: widget.onImportArchive,
+            ),
             MenuFlyoutItem(
               leading: const Icon(FluentIcons.sync),
               text: const Text('ادامه عملیات ناتمام'),

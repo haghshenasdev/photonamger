@@ -23,6 +23,7 @@ class TimelineGroupCard extends StatefulWidget {
   final void Function(List<TimelineGroup> groups) onGroupsMerged;
   final VoidCallback onResetTimeline;
   final VoidCallback onSuggestCategories;
+  final List<List<String>> availableCategoryPaths;
 
   const TimelineGroupCard({
     super.key,
@@ -35,6 +36,7 @@ class TimelineGroupCard extends StatefulWidget {
     required this.onGroupsMerged,
     required this.onResetTimeline,
     required this.onSuggestCategories,
+    this.availableCategoryPaths = const <List<String>>[],
   });
 
   @override
@@ -375,6 +377,15 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
       }
     }
 
+    for (final path in widget.availableCategoryPaths) {
+      for (final category in path) {
+        final value = category.trim();
+        if (value.isNotEmpty) {
+          categories.add(value);
+        }
+      }
+    }
+
     final result = categories.toList();
 
     result.sort(
@@ -432,6 +443,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
           groupTitle: group.title,
           metadata: group.metadata,
           groups: widget.groups,
+          availableCategoryPaths: widget.availableCategoryPaths,
         );
       },
     );
