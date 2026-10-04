@@ -578,8 +578,10 @@ class PortableProjectDatabaseService {
       final existingGeneric =
           existingName.isEmpty || _isGenericName(existingName);
 
-      if (importedReal &&
-          (existingGeneric || imported.updatedAt.isAfter(existing.updatedAt))) {
+      // نام دستی همیشه از نام سیستمی (شخص/شخص N) مهم‌تر است.
+      // اگر هر دو نام دستی باشند، نام موجود در دیتابیس مقصد را بی‌اجازه
+      // با نامی که از پروژه دیگر آمده overwrite نمی‌کنیم.
+      if (importedReal && existingGeneric) {
         existing.name = importedName;
       }
 

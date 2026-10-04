@@ -1519,10 +1519,16 @@ class FaceDatabaseService {
     await save(databaseDirectory, db);
   }
 
+  bool _isGenericPersonName(String value) {
+    final name = value.trim();
+    return name.isEmpty || name == 'شخص' || RegExp(r'^شخص\s+\d+$').hasMatch(name);
+  }
+
   Future<void> mergePersons({
     required String databaseDirectory,
     required String primaryPersonId,
     required String secondaryPersonId,
+    String? preferredName,
     List<String> sourceRoots = const <String>[],
   }) async {
     if (primaryPersonId == secondaryPersonId) {
@@ -1544,6 +1550,17 @@ class FaceDatabaseService {
 
     if (primary == null || secondary == null) {
       return;
+    }
+
+    final chosenName = preferredName?.trim();
+    if (chosenName != null && chosenName.isNotEmpty) {
+      primary.name = chosenName;
+    } else {
+      final primaryGeneric = _isGenericPersonName(primary.name);
+      final secondaryGeneric = _isGenericPersonName(secondary.name);
+      if (primaryGeneric && !secondaryGeneric) {
+        primary.name = secondary.name;
+      }
     }
 
     for (final face in db.faces) {
@@ -2121,12 +2138,6 @@ class FaceDatabaseService {
     return 0;
   }
 
-  static bool _isGenericPersonName(String value) {
-    final name = value.trim();
-    if (name.isEmpty) return true;
-    if (name == 'شخص') return true;
-    return RegExp(r'^شخص\s+\d+$').hasMatch(name);
-  }
 
   FacePerson _createPerson(FaceDatabase db) {
     final index = db.persons.length + 1;

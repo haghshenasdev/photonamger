@@ -198,13 +198,8 @@ class _HomePageState extends State<HomePage> {
           database: working,
         );
 
-        if (changed ||
-            working.persons.isNotEmpty ||
-            working.faces.isNotEmpty) {
-          await legacyService.save(
-            _getFaceDatabaseDirectory(),
-            working,
-          );
+        if (changed || working.persons.isNotEmpty || working.faces.isNotEmpty) {
+          await legacyService.save(_getFaceDatabaseDirectory(), working);
 
           snapshot = PortableProjectSnapshot(
             database: working,
@@ -232,16 +227,22 @@ class _HomePageState extends State<HomePage> {
 
       _portableArchiveRoot = root;
       _portableSnapshot = importedSnapshot;
-      _cachedPortableDuplicateGroups = await const PortableProjectDatabaseService()
-          .bindDuplicateGroups(snapshot: importedSnapshot, items: mediaItems);
-      _cachedPortableAnalysisPaths = await const PortableProjectDatabaseService()
-          .bindAnalysisPaths(snapshot: importedSnapshot, items: mediaItems);
+      _cachedPortableDuplicateGroups =
+          await const PortableProjectDatabaseService().bindDuplicateGroups(
+            snapshot: importedSnapshot,
+            items: mediaItems,
+          );
+      _cachedPortableAnalysisPaths =
+          await const PortableProjectDatabaseService().bindAnalysisPaths(
+            snapshot: importedSnapshot,
+            items: mediaItems,
+          );
 
       setState(() {
         _faceDatabase = importedSnapshot.database;
         _faceDatabaseDirectory = _getFaceDatabaseDirectory();
-        _faceMergeSuggestions =
-            const FaceDatabaseService().findMergeSuggestions(_faceDatabase);
+        _faceMergeSuggestions = const FaceDatabaseService()
+            .findMergeSuggestions(_faceDatabase);
         _categoryCatalogPaths = _uniqueCategoryPaths([
           ..._categoryCatalogPaths,
           ...importedSnapshot.categoryPaths,
@@ -295,16 +296,11 @@ class _HomePageState extends State<HomePage> {
     return result;
   }
 
-  List<List<String>> _uniqueCategoryPaths(
-    Iterable<List<String>> paths,
-  ) {
+  List<List<String>> _uniqueCategoryPaths(Iterable<List<String>> paths) {
     final result = <String, List<String>>{};
 
     for (final raw in paths) {
-      final path = raw
-          .map((e) => e.trim())
-          .where((e) => e.isNotEmpty)
-          .toList();
+      final path = raw.map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
       if (path.isEmpty) continue;
 
       final key = path
@@ -331,10 +327,7 @@ class _HomePageState extends State<HomePage> {
     const service = CategoryLearningService();
     final model = await service.load(directory);
 
-    final merged = service.merge(
-      model,
-      service.rebuild(groups),
-    );
+    final merged = service.merge(model, service.rebuild(groups));
 
     if (!mounted) return;
 
@@ -435,13 +428,8 @@ class _HomePageState extends State<HomePage> {
     if (mounted) setState(() {});
   }
 
-
-  Future<void> _rejectFaceAssignment(
-    MediaItem item,
-    String personId,
-  ) async {
-    final directory =
-        _faceDatabaseDirectory ?? _getFaceDatabaseDirectory();
+  Future<void> _rejectFaceAssignment(MediaItem item, String personId) async {
+    final directory = _faceDatabaseDirectory ?? _getFaceDatabaseDirectory();
 
     try {
       await const FaceDatabaseService().rejectFaceForPerson(
@@ -493,12 +481,8 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _clearFaceRejection(
-    MediaItem item,
-    String personId,
-  ) async {
-    final directory =
-        _faceDatabaseDirectory ?? _getFaceDatabaseDirectory();
+  Future<void> _clearFaceRejection(MediaItem item, String personId) async {
+    final directory = _faceDatabaseDirectory ?? _getFaceDatabaseDirectory();
 
     try {
       await const FaceDatabaseService().clearFaceRejection(
@@ -545,12 +529,73 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  bool _isSystemFaceName(String value) {
+    final name = value.trim();
+    return name.isEmpty ||
+        name == 'شخص' ||
+        RegExp(r'^شخص\s+\d+$').hasMatch(name);
+  }
+
   Future<void> _mergeFacePersons(
     String primaryPersonId,
     String secondaryPersonId,
   ) async {
-    if (primaryPersonId == secondaryPersonId) {
-      return;
+    if (primaryPersonId == secondaryPersonId) return;
+
+    var primaryId = primaryPersonId;
+    var secondaryId = secondaryPersonId;
+    FacePerson? first;
+    FacePerson? second;
+    for (final person in _faceDatabase.persons) {
+      if (person.id == primaryId) first = person;
+      if (person.id == secondaryId) second = person;
+    }
+    if (first == null || second == null) return;
+
+    final firstSystem = _isSystemFaceName(first.name);
+    final secondSystem = _isSystemFaceName(second.name);
+    String chosenName;
+
+    if (firstSystem && !secondSystem) {
+      // شخص نام‌گذاری‌شده را مقصد نگه می‌داریم، حتی اگر در UI سمت دوم باشد.
+      primaryId = second.id;
+      secondaryId = first.id;
+      chosenName = second.name.trim();
+    } else if (!firstSystem && secondSystem) {
+      chosenName = first.name.trim();
+    } else if (firstSystem && secondSystem) {
+      chosenName = first.name.trim().isNotEmpty ? first.name.trim() : 'شخص';
+    } else {
+      // هر دو نام دستی هستند؛ تنها در این حالت از کاربر می‌پرسیم کدام نام بماند.
+      final selectedName = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => ContentDialog(
+          title: const Text('انتخاب نام برای ادغام'),
+          content: Text(
+            'هر دو شخص نام دستی دارند. کدام نام حفظ شود؟\n\n۱) ${first?.name}\n۲) ${second?.name}',
+          ),
+          actions: [
+            Button(
+              child: Text(first!.name),
+              onPressed: () => Navigator.pop(dialogContext, first?.name),
+            ),
+            Button(
+              child: Text(second!.name),
+              onPressed: () => Navigator.pop(dialogContext, second?.name),
+            ),
+            Button(
+              child: const Text('لغو'),
+              onPressed: () => Navigator.pop(dialogContext),
+            ),
+          ],
+        ),
+      );
+      if (selectedName == null) return;
+      chosenName = selectedName;
+      if (selectedName == second.name) {
+        primaryId = second.id;
+        secondaryId = first.id;
+      }
     }
 
     final directory = _faceDatabaseDirectory ?? _getFaceDatabaseDirectory();
@@ -563,8 +608,9 @@ class _HomePageState extends State<HomePage> {
       // ============================================================
       await const FaceDatabaseService().mergePersons(
         databaseDirectory: directory,
-        primaryPersonId: primaryPersonId,
-        secondaryPersonId: secondaryPersonId,
+        primaryPersonId: primaryId,
+        secondaryPersonId: secondaryId,
+        preferredName: chosenName,
         sourceRoots: sourcePaths,
       );
 
@@ -581,8 +627,8 @@ class _HomePageState extends State<HomePage> {
       void updateFaces(List<MediaItem> items) {
         for (final item in items) {
           for (final face in item.faces) {
-            if (face.personId == secondaryPersonId) {
-              face.personId = primaryPersonId;
+            if (face.personId == secondaryId) {
+              face.personId = primaryId;
             }
           }
         }
@@ -606,8 +652,8 @@ class _HomePageState extends State<HomePage> {
       // می‌کنیم.
       // ============================================================
       setState(() {
-        if (_selectedFacePersonId == secondaryPersonId) {
-          _selectedFacePersonId = primaryPersonId;
+        if (_selectedFacePersonId == secondaryId) {
+          _selectedFacePersonId = primaryId;
         }
 
         // اگر شخص اصلی یا شخص دوم در لیست انتخاب merge بودند،
@@ -1110,7 +1156,8 @@ class _HomePageState extends State<HomePage> {
                 const SizedBox(width: 8),
 
                 Button(
-                  onPressed: groups.any((group) => group.edited) || _faceDatabaseDirty
+                  onPressed:
+                      groups.any((group) => group.edited) || _faceDatabaseDirty
                       ? _saveMetadataOnly
                       : null,
                   child: const Row(
@@ -1531,8 +1578,10 @@ class _HomePageState extends State<HomePage> {
 
     _portableArchiveRoot = root;
     _portableSnapshot = snapshot;
-    _cachedPortableDuplicateGroups =
-        await portable.bindDuplicateGroups(snapshot: snapshot, items: items);
+    _cachedPortableDuplicateGroups = await portable.bindDuplicateGroups(
+      snapshot: snapshot,
+      items: items,
+    );
     _cachedPortableAnalysisPaths = await portable.bindAnalysisPaths(
       snapshot: snapshot,
       items: items,
@@ -1540,8 +1589,9 @@ class _HomePageState extends State<HomePage> {
 
     _faceDatabase = snapshot.database;
     _faceDatabaseDirectory = _getFaceDatabaseDirectory();
-    _faceMergeSuggestions =
-        const FaceDatabaseService().findMergeSuggestions(_faceDatabase);
+    _faceMergeSuggestions = const FaceDatabaseService().findMergeSuggestions(
+      _faceDatabase,
+    );
     _categoryCatalogPaths = _uniqueCategoryPaths([
       ..._categoryCatalogPaths,
       ...snapshot.categoryPaths,
@@ -2232,7 +2282,9 @@ class _HomePageState extends State<HomePage> {
       if (oldWorkingDirectory != null &&
           _normalizePath(oldWorkingDirectory) !=
               _normalizePath(_workingDatabaseDirectory!)) {
-        final oldDb = await const FaceDatabaseService().load(oldWorkingDirectory);
+        final oldDb = await const FaceDatabaseService().load(
+          oldWorkingDirectory,
+        );
         if (oldDb.persons.isNotEmpty ||
             oldDb.faces.isNotEmpty ||
             oldDb.scans.isNotEmpty ||

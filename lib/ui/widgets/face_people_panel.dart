@@ -202,13 +202,9 @@ class _FacePeoplePanelState extends State<FacePeoplePanel> {
 
     if (first == null || second == null) return;
 
-    final primary = await _askPrimary(first, second);
-
-    if (primary == null) return;
-
-    final secondary = primary == first.id ? second.id : first.id;
-
-    await widget.onMerge!(primary, secondary);
+    // انتخاب نام/شخص مقصد در HomePage انجام می‌شود: اگر فقط یکی نام دستی
+    // داشته باشد همان خودکار حفظ می‌شود؛ اگر هر دو دستی باشند، آنجا سؤال می‌پرسیم.
+    await widget.onMerge!(first.id, second.id);
 
     if (!mounted) return;
 
@@ -267,60 +263,30 @@ class _FacePeoplePanelState extends State<FacePeoplePanel> {
 
     if (first == null || second == null) return;
 
-    final percent = (suggestion.similarity * 100).round();
-
-    final primary = await showDialog<String>(
+    final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) {
-        return ContentDialog(
-          title: const Text('پیشنهاد ادغام افراد'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'شباهت دو گروه: $percent٪',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'این فقط یک پیشنهاد است و ادغام بدون تأیید شما انجام نمی‌شود.',
-              ),
-              const SizedBox(height: 12),
-              Text('• ${first.name}'),
-              Text('• ${second.name}'),
-              const SizedBox(height: 12),
-              const Text('نام کدام شخص حفظ شود؟'),
-            ],
-          ),
-          actions: [
-            Button(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('فعلاً ادغام نکن'),
-            ),
-            Button(
-              onPressed: () =>
-                  Navigator.of(context).pop(first.id),
-              child: Text('حفظ «${first.name}»'),
-            ),
-            FilledButton(
-              onPressed: () =>
-                  Navigator.of(context).pop(second.id),
-              child: Text('حفظ «${second.name}»'),
-            ),
+      builder: (context) => ContentDialog(
+        title: const Text('پیشنهاد ادغام افراد'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('شباهت دو گروه: ${(suggestion.similarity * 100).round()}٪'),
+            const SizedBox(height: 8),
+            const Text('آیا این دو شخص متعلق به یک نفر هستند؟'),
+            const SizedBox(height: 12),
+            Text('• ${first.name}'),
+            Text('• ${second.name}'),
           ],
-        );
-      },
+        ),
+        actions: [
+          Button(onPressed: () => Navigator.of(context).pop(false), child: const Text('لغو')),
+          FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('ادغام')),
+        ],
+      ),
     );
-
-    if (primary == null) return;
-
-    final secondary =
-        primary == first.id ? second.id : first.id;
-
-    await widget.onMerge!(primary, secondary);
+    if (confirmed != true) return;
+    await widget.onMerge!(first.id, second.id);
   }
 
   @override
