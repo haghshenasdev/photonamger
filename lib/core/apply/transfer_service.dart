@@ -706,6 +706,7 @@ class TransferService {
       version: metadata.version,
       categories: normalizedCategories,
       description: metadata.description.trim(),
+      groupDate: metadata.groupDate,
     );
 
     await metadataService.save(

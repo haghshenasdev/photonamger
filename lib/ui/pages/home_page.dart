@@ -12,6 +12,8 @@ import 'package:fgphoto/core/media_scanner.dart';
 import 'package:fgphoto/core/metadata/metadata_service.dart';
 import 'package:fgphoto/core/timeline_builder.dart';
 import 'package:fgphoto/ui/dialogs/transfer_dialog.dart';
+import 'package:fgphoto/ui/pages/statistics_page.dart';
+import 'package:fgphoto/ui/models/statistics_snapshot.dart';
 import 'package:fgphoto/ui/models/apply_settings.dart';
 import 'package:fgphoto/ui/models/duplicate_group.dart';
 import 'package:fgphoto/ui/models/girid_item.dart';
@@ -21,6 +23,7 @@ import 'package:fgphoto/ui/models/timeline_group.dart';
 import 'package:fgphoto/ui/widgets/app_menu.dart';
 import 'package:fgphoto/ui/widgets/image_preview_dialog.dart';
 import 'package:fgphoto/core/apply/transfer_service.dart';
+import 'package:fgphoto/core/apply/folder_builder.dart';
 import 'package:fgphoto/core/project/photon_project.dart';
 import 'package:fgphoto/core/project/project_file_service.dart';
 import 'package:fgphoto/core/project/project_operation.dart';
@@ -861,6 +864,7 @@ class _HomePageState extends State<HomePage> {
             onSaveProjectAs: _saveProjectAs,
             onResumeOperations: _resumePendingOperations,
             onImportArchive: _importArchiveFromDisk,
+            onShowStatistics: _showStatistics,
           ),
         ),
         content: Column(
@@ -997,6 +1001,11 @@ class _HomePageState extends State<HomePage> {
                               selectedFiles: totalSelectedFiles,
                               selectedBytes: totalSelectedBytes,
                               totalFiles: mediaItems.length,
+                              statistics: StatisticsSnapshot.from(
+                                items: mediaItems,
+                                groups: groups,
+                                duplicateGroups: duplicateGroups,
+                              ),
                             ),
                           );
 
@@ -1247,7 +1256,7 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _saveInformationToPortableArchive() async {
+  Future<void> _saveInformationToPortableArchive({List<MediaItem> transferredItems = const []}) async {
     var root = _portableArchiveRoot;
 
     if (root == null || root.trim().isEmpty) {
@@ -1264,7 +1273,7 @@ class _HomePageState extends State<HomePage> {
       await portable.syncToRoot(
         root: root!,
         workingDatabase: _faceDatabase,
-        transferredItems: const [],
+        transferredItems: transferredItems,
         categoryPaths: _uniqueCategoryPaths([
           ..._categoryCatalogPaths,
           ..._categoryPathsFromGroups(),
@@ -1309,14 +1318,106 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _saveMetadataOnly() async {
-    final hasFaceChanges = _faceDatabaseDirty;
+  Future<List<MediaItem>> _renameEditedGroupFolders(
+    List<TimelineGroup> editedGroups,
+  ) async {
+    final renamedItems = <MediaItem>[];
 
-    if (hasFaceChanges) {
-      await _saveInformationToPortableArchive();
+    for (final group in editedGroups) {
+      final oldPath = group.metadataDirectory?.trim();
+      if (oldPath == null || oldPath.isEmpty) continue;
+
+      final oldDirectory = Directory(oldPath);
+      if (!await oldDirectory.exists()) continue;
+
+      final oldName = p.basename(oldDirectory.path);
+      final newName = FolderBuilder.renamedGroupFolderName(
+        group: group,
+        oldDirectoryName: oldName,
+      );
+
+      if (newName.trim().isEmpty || newName == oldName) continue;
+
+      final parent = oldDirectory.parent;
+      final targetPath = p.join(parent.path, newName);
+      final target = Directory(targetPath);
+
+      if (await target.exists()) {
+        if (!mounted) continue;
+        await displayInfoBar(
+          context,
+          builder: (context, close) => InfoBar(
+            title: const Text('تغییر نام پوشه انجام نشد'),
+            content: Text(
+              'پوشه «$newName» از قبل در مسیر ${parent.path} وجود دارد.',
+            ),
+            severity: InfoBarSeverity.warning,
+            onClose: close,
+          ),
+        );
+        continue;
+      }
+
+      try {
+        await oldDirectory.rename(targetPath);
+
+        for (final item in group.items) {
+          final normalizedItem = item.path.replaceAll('\\', '/');
+          final normalizedOld = oldDirectory.path.replaceAll('\\', '/');
+          final lowerItem = normalizedItem.toLowerCase();
+          final lowerOld = normalizedOld.toLowerCase();
+
+          if (lowerItem == lowerOld ||
+              lowerItem.startsWith('$lowerOld/')) {
+            final relative = normalizedItem.substring(normalizedOld.length)
+                .replaceFirst(RegExp(r'^[/\\]+'), '');
+            item.updatePath(p.join(targetPath, relative));
+            renamedItems.add(item);
+          }
+        }
+
+        group.metadataDirectory = targetPath;
+        group.edited = true;
+      } catch (e, stackTrace) {
+        debugPrint('Group folder rename error: $e');
+        debugPrintStack(stackTrace: stackTrace);
+
+        if (!mounted) continue;
+        await displayInfoBar(
+          context,
+          builder: (context, close) => InfoBar(
+            title: const Text('خطا در تغییر نام پوشه'),
+            content: Text('$oldName → $newName\n$e'),
+            severity: InfoBarSeverity.error,
+            onClose: close,
+          ),
+        );
+      }
     }
 
+    return renamedItems;
+  }
+
+  Future<void> _saveMetadataOnly() async {
     final editedGroups = groups
+        .where(
+          (group) =>
+              group.edited ||
+              group.metadata?.groupDate != null,
+        )
+        .toList();
+
+    final renamedItems = await _renameEditedGroupFolders(editedGroups);
+
+    final hasFaceChanges = _faceDatabaseDirty;
+
+    if (hasFaceChanges || renamedItems.isNotEmpty) {
+      await _saveInformationToPortableArchive(
+        transferredItems: renamedItems,
+      );
+    }
+
+    final groupsToSave = groups
         .where(
           (group) =>
               group.edited &&
@@ -1326,92 +1427,107 @@ class _HomePageState extends State<HomePage> {
         )
         .toList();
 
-    if (editedGroups.isEmpty) {
-      if (hasFaceChanges) return;
-
-      await displayInfoBar(
-        context,
-        builder: (context, close) {
-          return InfoBar(
-            title: const Text('تغییری برای ذخیره وجود ندارد'),
-            content: const Text(
-              'گروه ویرایش‌شده‌ای که مسیر پوشه آن مشخص باشد پیدا نشد.',
+    if (groupsToSave.isEmpty) {
+      if (hasFaceChanges || renamedItems.isNotEmpty) {
+        if (!mounted) return;
+        setState(() {});
+        _scheduleProjectSave();
+        await displayInfoBar(
+          context,
+          builder: (context, close) => InfoBar(
+            title: const Text('ذخیره شد'),
+            content: Text(
+              renamedItems.isNotEmpty
+                  ? 'نام پوشه و اطلاعات آرشیو روی هارد به‌روزرسانی شد.'
+                  : 'اطلاعات چهره روی هارد ذخیره شد.',
             ),
-            severity: InfoBarSeverity.info,
+            severity: InfoBarSeverity.success,
             onClose: close,
-          );
-        },
-      );
-
+          ),
+        );
+      }
       return;
     }
 
     try {
       const metadataService = MetadataService();
-
       int savedCount = 0;
 
-      for (final group in editedGroups) {
+      for (final group in groupsToSave) {
         final directoryPath = group.metadataDirectory!.trim();
-
         final directory = Directory(directoryPath);
 
-        if (!await directory.exists()) {
-          continue;
-        }
+        if (!await directory.exists()) continue;
 
         await metadataService.save(
           directoryPath: directoryPath,
           metadata: group.metadata!,
         );
 
+        // نام پوشه، تاریخ گروه و دسته‌بندی همگی اکنون در همین metadata
+        // ثبت شده‌اند و در Scan بعدی دوباره بازیابی می‌شوند.
         group.edited = false;
-
         savedCount++;
       }
 
-      if (!mounted) {
-        return;
+      if (renamedItems.isNotEmpty) {
+        // بعد از Rename، مسیرهای جدید در دیتابیس قابل‌حمل نیز ثبت شوند.
+        await _saveInformationToPortableArchive(
+          transferredItems: renamedItems,
+        );
       }
+
+      if (!mounted) return;
 
       setState(() {});
       _scheduleProjectSave();
 
       await displayInfoBar(
         context,
-        builder: (context, close) {
-          return InfoBar(
-            title: const Text('ذخیره شد'),
-            content: Text(
-              'اطلاعات $savedCount گروه در پوشه اصلی خودشان ذخیره شد.',
-            ),
-            severity: InfoBarSeverity.success,
-            onClose: close,
-          );
-        },
+        builder: (context, close) => InfoBar(
+          title: const Text('ذخیره شد'),
+          content: Text(
+            '$savedCount گروه ذخیره شد'
+            '${renamedItems.isNotEmpty ? ' و ${renamedItems.length} فایل با مسیر جدید ثبت شد.' : '.'}',
+          ),
+          severity: InfoBarSeverity.success,
+          onClose: close,
+        ),
       );
     } catch (e, stackTrace) {
       debugPrint('Metadata save error: $e');
-
       debugPrintStack(stackTrace: stackTrace);
 
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
 
       await displayInfoBar(
         context,
-        builder: (context, close) {
-          return InfoBar(
-            title: const Text('خطا در ذخیره اطلاعات'),
-            content: Text(e.toString()),
-            severity: InfoBarSeverity.error,
-            onClose: close,
-          );
-        },
+        builder: (context, close) => InfoBar(
+          title: const Text('خطا در ذخیره اطلاعات'),
+          content: Text(e.toString()),
+          severity: InfoBarSeverity.error,
+          onClose: close,
+        ),
       );
     }
   }
+
+  Future<void> _showStatistics() async {
+    final snapshot = StatisticsSnapshot.from(
+      items: mediaItems,
+      groups: groups,
+      duplicateGroups: duplicateGroups,
+    );
+
+    if (!mounted) return;
+
+    await Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        pageBuilder: (_, __, ___) => StatisticsPage(stats: snapshot),
+      ),
+    );
+  }
+
 
   int get totalSelectedFiles {
     final selectedDuplicateFiles = <String>{};

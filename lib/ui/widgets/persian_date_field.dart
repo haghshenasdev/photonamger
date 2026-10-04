@@ -1,10 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:persian_datetime_picker/persian_datetime_picker.dart';
+import 'package:shamsi_date/shamsi_date.dart';
+
+import 'persian_date_dropdown_dialog.dart';
 
 class PersianDateField extends StatelessWidget {
-
   final DateTime value;
-
   final ValueChanged<DateTime> onChanged;
 
   const PersianDateField({
@@ -15,31 +15,28 @@ class PersianDateField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-
-    final jalali =
-        Jalali.fromDateTime(value);
+    final jalali = Jalali.fromDateTime(value);
 
     return Button(
-      child: Text(
-        '${jalali.year}/'
-        '${jalali.month.toString().padLeft(2, '0')}/'
-        '${jalali.day.toString().padLeft(2, '0')}',
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(FluentIcons.calendar, size: 14),
+          const SizedBox(width: 7),
+          Text(
+            '${jalali.year}/'
+            '${jalali.month.toString().padLeft(2, '0')}/'
+            '${jalali.day.toString().padLeft(2, '0')}',
+          ),
+        ],
       ),
       onPressed: () async {
-
-        final result =
-            await showPersianDatePicker(
+        final result = await showDialog<DateTime>(
           context: context,
-          initialDate: jalali,
-          firstDate: Jalali(1380),
-          lastDate: Jalali(1450),
+          builder: (_) => PersianDateDropdownDialog(initialDate: value),
         );
 
-        if (result == null) return;
-
-        onChanged(
-          result.toDateTime(),
-        );
+        if (result != null) onChanged(result);
       },
     );
   }

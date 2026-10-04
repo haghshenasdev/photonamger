@@ -26,7 +26,7 @@ class FolderBuilder {
     required ApplySettings settings,
     required TimelineGroup group,
   }) async {
-    final j = Jalali.fromDateTime(group.start);
+    final j = Jalali.fromDateTime(group.metadata?.groupDate ?? group.start);
 
     String path = settings.outputFolder;
 
@@ -45,7 +45,7 @@ class FolderBuilder {
       String folderName = clean(group.title);
 
       if (settings.appendDateToGroupName) {
-        folderName += " - ${PersianDate.formatDate(group.start)}";
+        folderName += " - ${PersianDate.formatDate(group.metadata?.groupDate ?? group.start)}";
       }
 
       path = "$path/$folderName";
@@ -56,6 +56,27 @@ class FolderBuilder {
     await dir.create(recursive: true);
 
     return dir;
+  }
+
+
+  /// نام پوشه‌ای که برای یک گروه موجود و دارای تاریخ استفاده می‌شود.
+  /// در Rename پوشه‌های قدیمی، اگر نام قبلی تاریخ نداشته باشد همان حالت حفظ می‌شود.
+  static String renamedGroupFolderName({
+    required TimelineGroup group,
+    required String oldDirectoryName,
+  }) {
+    final base = clean(group.title);
+    final oldName = oldDirectoryName.trim();
+
+    final hadDateSuffix = RegExp(
+      r'\s+-\s+\d{1,4}-\d{1,2}-\d{1,2}\s*$',
+    ).hasMatch(oldName);
+
+    if (!hadDateSuffix) return base;
+
+    return clean(
+      '$base - ${PersianDate.formatDate(group.metadata?.groupDate ?? group.start)}',
+    );
   }
 
   static String clean(String text) {

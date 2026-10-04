@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 class GroupMetadata {
-  static const int currentVersion = 2;
+  static const int currentVersion = 3;
 
   /// هر عنصر یک مسیر کامل دسته‌بندی است.
   ///
@@ -16,10 +16,14 @@ class GroupMetadata {
 
   final String description;
 
+  /// تاریخ مستقل گروه که برای نام‌گذاری خروجی و جستجوی تاریخی استفاده می‌شود.
+  final DateTime? groupDate;
+
   const GroupMetadata({
     this.version = currentVersion,
     this.categories = const [],
     this.description = '',
+    this.groupDate,
   });
 
   final int version;
@@ -28,11 +32,13 @@ class GroupMetadata {
     int? version,
     List<List<String>>? categories,
     String? description,
+    DateTime? groupDate,
   }) {
     return GroupMetadata(
       version: version ?? this.version,
       categories: categories ?? this.categories,
       description: description ?? this.description,
+      groupDate: groupDate ?? this.groupDate,
     );
   }
 
@@ -41,6 +47,7 @@ class GroupMetadata {
       'version': version,
       'categories': categories.map((path) => List<String>.from(path)).toList(),
       'description': description,
+      'groupDate': groupDate?.toIso8601String(),
     };
   }
 
@@ -89,10 +96,17 @@ class GroupMetadata {
       }
     }
 
+    DateTime? groupDate;
+    final rawDate = json['groupDate']?.toString().trim();
+    if (rawDate != null && rawDate.isNotEmpty) {
+      groupDate = DateTime.tryParse(rawDate);
+    }
+
     return GroupMetadata(
       version: json['version'] is int ? json['version'] as int : currentVersion,
       categories: categories,
       description: json['description']?.toString() ?? '',
+      groupDate: groupDate,
     );
   }
 

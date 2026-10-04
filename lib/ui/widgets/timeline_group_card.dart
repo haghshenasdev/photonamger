@@ -9,9 +9,55 @@ import 'package:fgphoto/ui/widgets/title_select_dialog.dart';
 import 'package:fgphoto/ui/widgets/title_suggestion_dialog.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
+import 'package:shamsi_date/shamsi_date.dart';
 
 import 'persian_date_field.dart';
+import 'persian_date_dropdown_dialog.dart';
 import 'time_field.dart';
+
+class _TimelineListEntry {
+  final int? year;
+  final int? month;
+  final int? groupIndex;
+  final bool isYear;
+  final bool isMonth;
+
+  const _TimelineListEntry._({
+    this.year,
+    this.month,
+    this.groupIndex,
+    this.isYear = false,
+    this.isMonth = false,
+  });
+
+  factory _TimelineListEntry.year(int year) =>
+      _TimelineListEntry._(year: year, isYear: true);
+
+  factory _TimelineListEntry.month(int year, int month) =>
+      _TimelineListEntry._(year: year, month: month, isMonth: true);
+
+  factory _TimelineListEntry.group(int index) =>
+      _TimelineListEntry._(groupIndex: index);
+}
+
+String _persianMonthName(int month) {
+  const names = [
+    'فروردین',
+    'اردیبهشت',
+    'خرداد',
+    'تیر',
+    'مرداد',
+    'شهریور',
+    'مهر',
+    'آبان',
+    'آذر',
+    'دی',
+    'بهمن',
+    'اسفند',
+  ];
+  if (month < 1 || month > 12) return '$month';
+  return names[month - 1];
+}
 
 class TimelineGroupCard extends StatefulWidget {
   final List<TimelineGroup> groups;
@@ -57,6 +103,12 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
   String _categorySearchQuery = '';
 
   final Set<int> expandedGroups = <int>{};
+
+  /// بخش‌های سال/ماه Timeline به‌صورت جمع‌شونده.
+  final Set<int> _collapsedYears = <int>{};
+  final Set<String> _collapsedMonths = <String>{};
+
+  DateTime? _dateFilter;
   final Set<int> selectedForMerge = <int>{};
 
   final Map<int, TextEditingController> _controllers =
@@ -395,10 +447,78 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
     return result;
   }
 
+  bool _groupMatchesDate(TimelineGroup group) {
+    final filter = _dateFilter;
+    if (filter == null) return true;
+
+    final groupDate = group.metadata?.groupDate ?? group.start;
+    return groupDate.year == filter.year &&
+        groupDate.month == filter.month &&
+        groupDate.day == filter.day;
+  }
+
   List<TimelineGroup> get _filteredGroups {
     return widget.groups.where((group) {
-      return _groupMatchesSearch(group) && _groupMatchesCategory(group);
+      return _groupMatchesSearch(group) &&
+          _groupMatchesCategory(group) &&
+          _groupMatchesDate(group);
     }).toList();
+  }
+
+  Future<void> _chooseDateFilter() async {
+    final result = await showDialog<DateTime>(
+      context: context,
+      builder: (_) =>
+          PersianDateDropdownDialog(initialDate: _dateFilter ?? DateTime.now()),
+    );
+
+    if (result == null || !mounted) return;
+
+    setState(() => _dateFilter = result);
+  }
+
+  String _dateFilterText() {
+    final value = _dateFilter;
+    if (value == null) return 'همه تاریخ‌ها';
+    final j = Jalali.fromDateTime(value);
+    return '${j.year}/${j.month.toString().padLeft(2, '0')}/${j.day.toString().padLeft(2, '0')}';
+  }
+
+  List<_TimelineListEntry> _timelineEntries(List<TimelineGroup> filtered) {
+    final grouped = <int, Map<int, List<int>>>{};
+
+    for (int index = 0; index < filtered.length; index++) {
+      final date = filtered[index].metadata?.groupDate ?? filtered[index].start;
+      grouped
+          .putIfAbsent(date.year, () => <int, List<int>>{})
+          .putIfAbsent(date.month, () => <int>[])
+          .add(index);
+    }
+
+    final years = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
+    final result = <_TimelineListEntry>[];
+
+    for (final year in years) {
+      result.add(_TimelineListEntry.year(year));
+
+      if (_collapsedYears.contains(year)) continue;
+
+      final months = grouped[year]!.keys.toList()
+        ..sort((a, b) => b.compareTo(a));
+
+      for (final month in months) {
+        final key = '$year-$month';
+        result.add(_TimelineListEntry.month(year, month));
+
+        if (_collapsedMonths.contains(key)) continue;
+
+        for (final groupIndex in grouped[year]![month]!) {
+          result.add(_TimelineListEntry.group(groupIndex));
+        }
+      }
+    }
+
+    return result;
   }
 
   // ===========================================================================
@@ -444,6 +564,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
           metadata: group.metadata,
           groups: widget.groups,
           availableCategoryPaths: widget.availableCategoryPaths,
+          initialGroupDate: group.metadata?.groupDate ?? group.start,
         );
       },
     );
@@ -703,7 +824,8 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                     ),
 
                     if (_searchQuery.isNotEmpty ||
-                        _selectedCategory != null) ...[
+                        _selectedCategory != null ||
+                        _dateFilter != null) ...[
                       const SizedBox(width: 6),
 
                       IconButton(
@@ -714,6 +836,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                           setState(() {
                             _searchQuery = '';
                             _selectedCategory = null;
+                            _dateFilter = null;
                           });
                         },
                       ),
@@ -721,7 +844,40 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                   ],
                 ),
 
-                if (_searchQuery.isNotEmpty || _selectedCategory != null) ...[
+                const SizedBox(height: 8),
+
+                Row(
+                  children: [
+                    const Icon(FluentIcons.calendar, size: 14),
+                    const SizedBox(width: 6),
+                    const Text('تاریخ:', style: TextStyle(fontSize: 12)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Button(
+                        onPressed: widget.groups.isEmpty
+                            ? null
+                            : _chooseDateFilter,
+                        child: Row(
+                          children: [
+                            const Icon(FluentIcons.calendar, size: 13),
+                            const SizedBox(width: 7),
+                            Expanded(
+                              child: Text(
+                                _dateFilterText(),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const Icon(FluentIcons.chevron_down, size: 12),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                if (_searchQuery.isNotEmpty ||
+                    _selectedCategory != null ||
+                    _dateFilter != null) ...[
                   const SizedBox(height: 5),
 
                   Align(
@@ -756,7 +912,8 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                         ),
 
                         if (_searchQuery.isNotEmpty ||
-                            _selectedCategory != null) ...[
+                            _selectedCategory != null ||
+                            _dateFilter != null) ...[
                           const SizedBox(height: 10),
 
                           Button(
@@ -764,6 +921,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                               setState(() {
                                 _searchQuery = '';
                                 _selectedCategory = null;
+                                _dateFilter = null;
                               });
 
                               _searchController.clear();
@@ -774,303 +932,428 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                       ],
                     ),
                   )
-                : ListView.builder(
-                    cacheExtent: 420,
-                    addAutomaticKeepAlives: false,
-                    addRepaintBoundaries: true,
-                    addSemanticIndexes: false,
-                    itemCount: filteredGroups.length,
-                    itemBuilder: (_, index) {
-                      final group = filteredGroups[index];
+                : Builder(
+                    builder: (context) {
+                      final entries = _timelineEntries(filteredGroups);
 
-                      final isSelected = identical(widget.selectedGroup, group);
+                      return ListView.builder(
+                        cacheExtent: 420,
+                        addAutomaticKeepAlives: false,
+                        addRepaintBoundaries: true,
+                        addSemanticIndexes: false,
+                        itemCount: entries.length,
+                        itemBuilder: (_, entryIndex) {
+                          final entry = entries[entryIndex];
 
-                      final isExpanded = expandedGroups.contains(index);
-
-                      final categoryText = _categoryText(group);
-
-                      return RepaintBoundary(
-                        child: Padding(
-                          padding: const EdgeInsets.all(6),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              border: Border.all(
-                                color: isSelected
-                                    ? Colors.blue
-                                    : Colors.grey[80],
-                                width: isSelected ? 2 : 1,
-                              ),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Column(
-                              children: [
-                                // -------------------------------------------------
-                                // GROUP HEADER / CARD
-                                // -------------------------------------------------
-                                FlyoutTarget(
-                                  controller: _groupFlyoutControllerFor(group),
-                                  child: GestureDetector(
-                                    behavior: HitTestBehavior.opaque,
-                                    onTap: () {
-                                      if (selectedForMerge.isNotEmpty) {
-                                        setState(() {
-                                          if (selectedForMerge.contains(
-                                            index,
-                                          )) {
-                                            selectedForMerge.remove(index);
-                                          } else {
-                                            selectedForMerge.add(index);
-                                          }
-                                        });
-
-                                        return;
-                                      }
-
-                                      widget.onGroupSelected(group);
-                                    },
-
-                                    onLongPress: () {
-                                      setState(() {
-                                        selectedForMerge.add(index);
-                                      });
-
-                                      widget.onGroupSelected(group);
-                                    },
-
-                                    onSecondaryTapDown: (details) {
-                                      _groupFlyoutControllerFor(
-                                        group,
-                                      ).showFlyout(
-                                        position: details.globalPosition,
-                                        builder: (context) {
-                                          return MenuFlyout(
-                                            items: [
-                                              MenuFlyoutItem(
-                                                leading: const Icon(
-                                                  FluentIcons
-                                                      .checkbox_composite,
-                                                ),
-                                                text: const Text('انتخاب'),
-                                                onPressed: () {
-                                                  setState(() {
-                                                    selectedForMerge.add(index);
-                                                  });
-                                                  widget.onGroupSelected(group);
-                                                },
-                                              ),
-                                              MenuFlyoutItem(
-                                                leading: const Icon(
-                                                  FluentIcons.edit,
-                                                ),
-                                                text: const Text('ویرایش'),
-                                                onPressed: () {
-                                                  setState(() {
-                                                    expandedGroups.add(index);
-                                                  });
-                                                  widget.onGroupSelected(group);
-                                                },
-                                              ),
-                                              MenuFlyoutItem(
-                                                leading: const Icon(
-                                                  FluentIcons.search,
-                                                ),
-                                                text: const Text(
-                                                  'تحلیل تصاویر تکراری این گروه',
-                                                ),
-                                                onPressed: () async {
-                                                  widget.onGroupSelected(group);
-                                                  await widget
-                                                      .onAnalyzeGroupRequested(
-                                                        group,
-                                                      );
-                                                },
-                                              ),
-                                              MenuFlyoutItem(
-                                                leading: const Icon(
-                                                  FluentIcons.info,
-                                                ),
-                                                text: const Text(
-                                                  'اطلاعات گروه',
-                                                ),
-                                                onPressed: () {
-                                                  widget.onGroupSelected(group);
-                                                  _editGroupMetadata(group);
-                                                },
-                                              ),
-                                              const MenuFlyoutSeparator(),
-                                              MenuFlyoutItem(
-                                                leading: const Icon(
-                                                  FluentIcons.delete,
-                                                ),
-                                                text: const Text('حذف'),
-                                                onPressed: () {
-                                                  _removeGroup(index);
-                                                },
-                                              ),
-                                            ],
-                                          );
-                                        },
-                                      );
-                                    },
-
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(10),
-                                      child: Row(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          // -------------------------------------------------
-                                          // MERGE CHECKBOX
-                                          // -------------------------------------------------
-                                          if (selectedForMerge.isNotEmpty)
-                                            Checkbox(
-                                              checked: selectedForMerge
-                                                  .contains(index),
-                                              onChanged: (value) {
-                                                setState(() {
-                                                  if (value == true) {
-                                                    selectedForMerge.add(index);
-                                                  } else {
-                                                    selectedForMerge.remove(
-                                                      index,
-                                                    );
-                                                  }
-                                                });
-                                              },
-                                            ),
-
-                                          const SizedBox(width: 4),
-
-                                          // -------------------------------------------------
-                                          // FIRST IMAGE
-                                          // -------------------------------------------------
-                                          _buildGroupThumbnail(group),
-
-                                          const SizedBox(width: 12),
-
-                                          // -------------------------------------------------
-                                          // GROUP INFORMATION
-                                          // -------------------------------------------------
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  group.title,
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style: const TextStyle(
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
-
-                                                const SizedBox(height: 4),
-
-                                                Text(
-                                                  '${group.items.length} فایل',
-                                                  style: const TextStyle(
-                                                    fontSize: 11,
-                                                  ),
-                                                ),
-
-                                                Text(
-                                                  '${PersianDate.formatDateTime(group.start)} تا ${PersianDate.formatDateTime(group.end)}',
-                                                  maxLines: 2,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style: const TextStyle(
-                                                    fontSize: 11,
-                                                  ),
-                                                ),
-
-                                                if (categoryText
-                                                    .isNotEmpty) ...[
-                                                  const SizedBox(height: 5),
-
-                                                  Row(
-                                                    crossAxisAlignment:
-                                                        CrossAxisAlignment
-                                                            .start,
-                                                    children: [
-                                                      const Padding(
-                                                        padding:
-                                                            EdgeInsets.only(
-                                                              top: 2,
-                                                            ),
-                                                        child: Icon(
-                                                          FluentIcons.folder,
-                                                          size: 12,
-                                                        ),
-                                                      ),
-
-                                                      const SizedBox(width: 4),
-
-                                                      Expanded(
-                                                        child: Text(
-                                                          categoryText,
-                                                          maxLines: 2,
-                                                          overflow: TextOverflow
-                                                              .ellipsis,
-                                                          style: TextStyle(
-                                                            fontSize: 11,
-                                                            color: Colors.blue,
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ],
-                                              ],
-                                            ),
-                                          ),
-
-                                          // -------------------------------------------------
-                                          // ACTION BUTTONS
-                                          // -------------------------------------------------
-                                          Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              IconButton(
-                                                icon: Icon(
-                                                  group.metadata == null
-                                                      ? FluentIcons.info
-                                                      : FluentIcons.info_solid,
-                                                ),
-                                                onPressed: () {
-                                                  _editGroupMetadata(group);
-                                                },
-                                              ),
-
-                                              IconButton(
-                                                icon: Icon(
-                                                  isExpanded
-                                                      ? FluentIcons.chevron_up
-                                                      : FluentIcons
-                                                            .chevron_down,
-                                                ),
-                                                onPressed: () {
-                                                  _toggleExpanded(index);
-                                                },
-                                              ),
-                                            ],
-                                          ),
-                                        ],
+                          if (entry.isYear) {
+                            final year = entry.year!;
+                            final collapsed = _collapsedYears.contains(year);
+                            return Padding(
+                              padding: const EdgeInsets.fromLTRB(6, 8, 6, 2),
+                              child: Expander(
+                                initiallyExpanded: !collapsed,
+                                header: Row(
+                                  children: [
+                                    const Icon(FluentIcons.calendar, size: 14),
+                                    const SizedBox(width: 7),
+                                    Text(
+                                      'سال $year',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
                                       ),
                                     ),
-                                  ),
+                                    const Spacer(),
+                                    Text(
+                                      '${filteredGroups.where((g) => (g.metadata?.groupDate ?? g.start).year == year).length} گروه',
+                                      style: const TextStyle(fontSize: 11),
+                                    ),
+                                  ],
                                 ),
+                                content: const SizedBox.shrink(),
+                                onStateChanged: (expanded) {
+                                  setState(() {
+                                    if (expanded) {
+                                      _collapsedYears.remove(year);
+                                    } else {
+                                      _collapsedYears.add(year);
+                                    }
+                                  });
+                                },
+                              ),
+                            );
+                          }
 
-                                // -------------------------------------------------
-                                // EXPANDED EDITOR
-                                // -------------------------------------------------
-                                if (isExpanded)
-                                  _buildExpandedEditor(index, group),
-                              ],
+                          if (entry.isMonth) {
+                            final year = entry.year!;
+                            final month = entry.month!;
+                            final key = '$year-$month';
+                            final collapsed = _collapsedMonths.contains(key);
+                            final monthName = _persianMonthName(month);
+                            return Padding(
+                              padding: const EdgeInsetsDirectional.only(
+                                start: 14,
+                                end: 6,
+                                top: 4,
+                                bottom: 2,
+                              ),
+                              child: Expander(
+                                initiallyExpanded: !collapsed,
+                                header: Row(
+                                  children: [
+                                    const Icon(FluentIcons.calendar, size: 13),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      '$monthName ($year)',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                content: const SizedBox.shrink(),
+                                onStateChanged: (expanded) {
+                                  setState(() {
+                                    if (expanded) {
+                                      _collapsedMonths.remove(key);
+                                    } else {
+                                      _collapsedMonths.add(key);
+                                    }
+                                  });
+                                },
+                              ),
+                            );
+                          }
+
+                          final index = entry.groupIndex!;
+                          final group = filteredGroups[index];
+
+                          final isSelected = identical(
+                            widget.selectedGroup,
+                            group,
+                          );
+
+                          final isExpanded = expandedGroups.contains(index);
+
+                          final categoryText = _categoryText(group);
+
+                          return RepaintBoundary(
+                            child: Padding(
+                              padding: const EdgeInsets.all(6),
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                    color: isSelected
+                                        ? Colors.blue
+                                        : Colors.grey[80],
+                                    width: isSelected ? 2 : 1,
+                                  ),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Column(
+                                  children: [
+                                    // -------------------------------------------------
+                                    // GROUP HEADER / CARD
+                                    // -------------------------------------------------
+                                    FlyoutTarget(
+                                      controller: _groupFlyoutControllerFor(
+                                        group,
+                                      ),
+                                      child: GestureDetector(
+                                        behavior: HitTestBehavior.opaque,
+                                        onTap: () {
+                                          if (selectedForMerge.isNotEmpty) {
+                                            setState(() {
+                                              if (selectedForMerge.contains(
+                                                index,
+                                              )) {
+                                                selectedForMerge.remove(index);
+                                              } else {
+                                                selectedForMerge.add(index);
+                                              }
+                                            });
+
+                                            return;
+                                          }
+
+                                          widget.onGroupSelected(group);
+                                        },
+
+                                        onLongPress: () {
+                                          setState(() {
+                                            selectedForMerge.add(index);
+                                          });
+
+                                          widget.onGroupSelected(group);
+                                        },
+
+                                        onSecondaryTapDown: (details) {
+                                          _groupFlyoutControllerFor(
+                                            group,
+                                          ).showFlyout(
+                                            position: details.globalPosition,
+                                            builder: (context) {
+                                              return MenuFlyout(
+                                                items: [
+                                                  MenuFlyoutItem(
+                                                    leading: const Icon(
+                                                      FluentIcons
+                                                          .checkbox_composite,
+                                                    ),
+                                                    text: const Text('انتخاب'),
+                                                    onPressed: () {
+                                                      setState(() {
+                                                        selectedForMerge.add(
+                                                          index,
+                                                        );
+                                                      });
+                                                      widget.onGroupSelected(
+                                                        group,
+                                                      );
+                                                    },
+                                                  ),
+                                                  MenuFlyoutItem(
+                                                    leading: const Icon(
+                                                      FluentIcons.edit,
+                                                    ),
+                                                    text: const Text('ویرایش'),
+                                                    onPressed: () {
+                                                      setState(() {
+                                                        expandedGroups.add(
+                                                          index,
+                                                        );
+                                                      });
+                                                      widget.onGroupSelected(
+                                                        group,
+                                                      );
+                                                    },
+                                                  ),
+                                                  MenuFlyoutItem(
+                                                    leading: const Icon(
+                                                      FluentIcons.search,
+                                                    ),
+                                                    text: const Text(
+                                                      'تحلیل تصاویر تکراری این گروه',
+                                                    ),
+                                                    onPressed: () async {
+                                                      widget.onGroupSelected(
+                                                        group,
+                                                      );
+                                                      await widget
+                                                          .onAnalyzeGroupRequested(
+                                                            group,
+                                                          );
+                                                    },
+                                                  ),
+                                                  MenuFlyoutItem(
+                                                    leading: const Icon(
+                                                      FluentIcons.info,
+                                                    ),
+                                                    text: const Text(
+                                                      'اطلاعات گروه',
+                                                    ),
+                                                    onPressed: () {
+                                                      widget.onGroupSelected(
+                                                        group,
+                                                      );
+                                                      _editGroupMetadata(group);
+                                                    },
+                                                  ),
+                                                  const MenuFlyoutSeparator(),
+                                                  MenuFlyoutItem(
+                                                    leading: const Icon(
+                                                      FluentIcons.delete,
+                                                    ),
+                                                    text: const Text('حذف'),
+                                                    onPressed: () {
+                                                      _removeGroup(index);
+                                                    },
+                                                  ),
+                                                ],
+                                              );
+                                            },
+                                          );
+                                        },
+
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(10),
+                                          child: Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              // -------------------------------------------------
+                                              // MERGE CHECKBOX
+                                              // -------------------------------------------------
+                                              if (selectedForMerge.isNotEmpty)
+                                                Checkbox(
+                                                  checked: selectedForMerge
+                                                      .contains(index),
+                                                  onChanged: (value) {
+                                                    setState(() {
+                                                      if (value == true) {
+                                                        selectedForMerge.add(
+                                                          index,
+                                                        );
+                                                      } else {
+                                                        selectedForMerge.remove(
+                                                          index,
+                                                        );
+                                                      }
+                                                    });
+                                                  },
+                                                ),
+
+                                              const SizedBox(width: 4),
+
+                                              // -------------------------------------------------
+                                              // FIRST IMAGE
+                                              // -------------------------------------------------
+                                              _buildGroupThumbnail(group),
+
+                                              const SizedBox(width: 12),
+
+                                              // -------------------------------------------------
+                                              // GROUP INFORMATION
+                                              // -------------------------------------------------
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      group.title,
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                      ),
+                                                    ),
+
+                                                    const SizedBox(height: 4),
+
+                                                    Text(
+                                                      '${group.items.length} فایل',
+                                                      style: const TextStyle(
+                                                        fontSize: 11,
+                                                      ),
+                                                    ),
+
+                                                    Text(
+                                                      '${PersianDate.formatDateTime(group.start)} تا ${PersianDate.formatDateTime(group.end)}',
+                                                      maxLines: 2,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: const TextStyle(
+                                                        fontSize: 11,
+                                                      ),
+                                                    ),
+
+                                                    const SizedBox(height: 3),
+
+                                                    Text(
+                                                      'تاریخ گروه: ${PersianDate.formatDate(group.metadata?.groupDate ?? group.start)}',
+                                                      style: TextStyle(
+                                                        fontSize: 10,
+                                                        color: Colors.grey[100],
+                                                      ),
+                                                    ),
+
+                                                    if (categoryText
+                                                        .isNotEmpty) ...[
+                                                      const SizedBox(height: 5),
+
+                                                      Row(
+                                                        crossAxisAlignment:
+                                                            CrossAxisAlignment
+                                                                .start,
+                                                        children: [
+                                                          const Padding(
+                                                            padding:
+                                                                EdgeInsets.only(
+                                                                  top: 2,
+                                                                ),
+                                                            child: Icon(
+                                                              FluentIcons
+                                                                  .folder,
+                                                              size: 12,
+                                                            ),
+                                                          ),
+
+                                                          const SizedBox(
+                                                            width: 4,
+                                                          ),
+
+                                                          Expanded(
+                                                            child: Text(
+                                                              categoryText,
+                                                              maxLines: 2,
+                                                              overflow:
+                                                                  TextOverflow
+                                                                      .ellipsis,
+                                                              style: TextStyle(
+                                                                fontSize: 11,
+                                                                color:
+                                                                    Colors.blue,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ],
+                                                  ],
+                                                ),
+                                              ),
+
+                                              // -------------------------------------------------
+                                              // ACTION BUTTONS
+                                              // -------------------------------------------------
+                                              Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  IconButton(
+                                                    icon: Icon(
+                                                      group.metadata == null
+                                                          ? FluentIcons.info
+                                                          : FluentIcons
+                                                                .info_solid,
+                                                    ),
+                                                    onPressed: () {
+                                                      _editGroupMetadata(group);
+                                                    },
+                                                  ),
+
+                                                  IconButton(
+                                                    icon: Icon(
+                                                      isExpanded
+                                                          ? FluentIcons
+                                                                .chevron_up
+                                                          : FluentIcons
+                                                                .chevron_down,
+                                                    ),
+                                                    onPressed: () {
+                                                      _toggleExpanded(index);
+                                                    },
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+
+                                    // -------------------------------------------------
+                                    // EXPANDED EDITOR
+                                    // -------------------------------------------------
+                                    if (isExpanded)
+                                      _buildExpandedEditor(index, group),
+                                  ],
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
+                          );
+                        },
                       );
                     },
                   ),

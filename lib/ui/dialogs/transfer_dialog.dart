@@ -1,6 +1,8 @@
 import 'package:fgphoto/core/folder_service.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:fgphoto/ui/models/apply_settings.dart';
+import 'package:fgphoto/ui/models/statistics_snapshot.dart';
+import 'package:fgphoto/ui/widgets/statistics_charts.dart';
 
 class TransferDialog extends StatefulWidget {
   const TransferDialog({
@@ -9,12 +11,14 @@ class TransferDialog extends StatefulWidget {
     required this.selectedFiles,
     required this.totalFiles,
     required this.selectedBytes,
+    required this.statistics,
   });
 
   final int groupCount;
   final int selectedFiles;
   final int totalFiles;
   final int selectedBytes;
+  final StatisticsSnapshot statistics;
 
   @override
   State<TransferDialog> createState() => _TransferDialogState();
@@ -198,29 +202,46 @@ class _TransferDialogState extends State<TransferDialog> {
 
           InfoLabel(
             label: "آمار",
-
-            child: Container(
-              padding: const EdgeInsets.all(12),
-
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey),
-
-                borderRadius: BorderRadius.circular(6),
-              ),
-
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-
-                children: [
-                  Text("تعداد گروه‌ها : ${widget.groupCount}"),
-
-                  Text("فایل‌های منتخب : ${widget.selectedFiles}"),
-
-                  Text("حجم فایل‌های منتخب : ${_formatBytes(widget.selectedBytes)}"),
-
-                  Text("کل فایل‌ها : ${widget.totalFiles}"),
-                ],
-              ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  flex: 4,
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("تعداد گروه‌ها : ${widget.groupCount}"),
+                        Text("فایل‌های منتخب : ${widget.selectedFiles}"),
+                        Text(
+                          "حجم فایل‌های منتخب : ${_formatBytes(widget.selectedBytes)}",
+                        ),
+                        Text("کل فایل‌ها : ${widget.totalFiles}"),
+                        Text("تصاویر : ${widget.statistics.images}"),
+                        Text("ویدئوها : ${widget.statistics.videos}"),
+                        Text("دارای چهره : ${widget.statistics.faceImages}"),
+                        Text("گروه‌های تکراری : ${widget.statistics.duplicateGroups}"),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 6,
+                  child: SizedBox(
+                    height: 190,
+                    child: StatisticsCharts(
+                      stats: widget.statistics,
+                      compact: true,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],

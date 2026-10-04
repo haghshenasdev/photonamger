@@ -10,6 +10,7 @@ class AppMenu extends StatefulWidget {
     required this.onSaveProjectAs,
     required this.onResumeOperations,
     required this.onImportArchive,
+    required this.onShowStatistics,
   });
 
   final VoidCallback onNewProject;
@@ -18,6 +19,7 @@ class AppMenu extends StatefulWidget {
   final VoidCallback onSaveProjectAs;
   final VoidCallback onResumeOperations;
   final VoidCallback onImportArchive;
+  final VoidCallback onShowStatistics;
 
   @override
   State<AppMenu> createState() => _AppMenuState();
@@ -94,6 +96,11 @@ class _AppMenuState extends State<AppMenu> {
               leading: const Icon(FluentIcons.sync),
               text: const Text('ادامه عملیات ناتمام'),
               onPressed: widget.onResumeOperations,
+            ),
+            MenuFlyoutItem(
+              leading: const Icon(FluentIcons.bar_chart_vertical),
+              text: const Text('آمار جامع تصاویر'),
+              onPressed: widget.onShowStatistics,
             ),
             const MenuFlyoutSeparator(),
             MenuFlyoutItem(

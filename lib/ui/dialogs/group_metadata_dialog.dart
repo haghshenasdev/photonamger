@@ -3,6 +3,7 @@ import 'package:fgphoto/ui/models/category_node.dart';
 import 'package:fgphoto/ui/models/group_metadata.dart';
 import 'package:fgphoto/ui/models/timeline_group.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import '../widgets/persian_date_field.dart';
 
 class GroupMetadataDialog extends StatefulWidget {
   final String groupTitle;
@@ -14,12 +15,16 @@ class GroupMetadataDialog extends StatefulWidget {
   /// دسته‌بندی‌های واردشده از آرشیو هارد، حتی اگر هنوز در گروه جدید استفاده نشده باشند.
   final List<List<String>> availableCategoryPaths;
 
+  /// تاریخ پیش‌فرض گروه، معمولاً تاریخ شروع Timeline.
+  final DateTime? initialGroupDate;
+
   const GroupMetadataDialog({
     super.key,
     required this.groupTitle,
     this.metadata,
     this.groups = const <TimelineGroup>[],
     this.availableCategoryPaths = const <List<String>>[],
+    this.initialGroupDate,
   });
 
   @override
@@ -28,6 +33,7 @@ class GroupMetadataDialog extends StatefulWidget {
 
 class _GroupMetadataDialogState extends State<GroupMetadataDialog> {
   late final TextEditingController _descriptionController;
+  DateTime? _groupDate;
 
   final List<List<TextEditingController>> _categoryPaths = [];
   final Map<String, bool> _expandedSuggestions = <String, bool>{};
@@ -62,6 +68,7 @@ class _GroupMetadataDialogState extends State<GroupMetadataDialog> {
     _descriptionController = TextEditingController(
       text: widget.metadata?.description ?? '',
     );
+    _groupDate = widget.metadata?.groupDate ?? widget.initialGroupDate;
 
     final categories = widget.metadata?.categories ?? const <List<String>>[];
 
@@ -158,6 +165,7 @@ class _GroupMetadataDialogState extends State<GroupMetadataDialog> {
       GroupMetadata(
         categories: _getCategories(),
         description: _descriptionController.text.trim(),
+        groupDate: _groupDate,
       ),
     );
   }
@@ -487,6 +495,36 @@ class _GroupMetadataDialogState extends State<GroupMetadataDialog> {
                   ),
                 ),
 
+                const SizedBox(height: 20),
+                const Text(
+                  'تاریخ گروه',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    if (_groupDate != null)
+                      PersianDateField(
+                        value: _groupDate!,
+                        onChanged: (value) {
+                          setState(() => _groupDate = value);
+                        },
+                      ),
+                    if (_groupDate == null)
+                      Button(
+                        onPressed: () {
+                          setState(() => _groupDate = widget.initialGroupDate);
+                        },
+                        child: const Text('استفاده از تاریخ شروع گروه'),
+                      ),
+                    const SizedBox(width: 8),
+                    if (_groupDate != null)
+                      Button(
+                        onPressed: () => setState(() => _groupDate = null),
+                        child: const Text('بدون تاریخ'),
+                      ),
+                  ],
+                ),
                 const SizedBox(height: 20),
                 const Text(
                   'توضیحات',

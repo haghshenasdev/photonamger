@@ -65,6 +65,7 @@ class _CategorySuggestionDialogState
           List<String>.from(suggestion.path),
         ],
         description: row.group.description,
+        groupDate: row.group.metadata?.groupDate ?? row.group.start,
       );
 
       row.group.edited = true;
