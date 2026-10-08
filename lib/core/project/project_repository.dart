@@ -38,8 +38,8 @@ class ProjectRepository {
 
       await temp.rename(file.path);
 
-      // Only remove the backup after the new project is safely in place.
-      if (await backup.exists()) await backup.delete();
+      // Keep the previous valid project as a rolling recovery checkpoint.
+      // It is replaced by the previous main file on the next successful save.
     } catch (_) {
       // Keep the temp file for recovery and restore the previous project if possible.
       if (movedCurrentToBackup && await backup.exists()) {
@@ -92,6 +92,32 @@ class ProjectRepository {
     );
   }
 
+  /// A recovery copy for work that has not been saved to a named project yet.
+  /// It lives in the user's application data directory, not beside source photos.
+  static Future<String> recoveryProjectPath() async {
+    final directory = await _applicationDataDirectory();
+    return '${directory.path}${Platform.pathSeparator}recovery.photonamger';
+  }
+
+  static Future<Directory> _applicationDataDirectory() async {
+    String base;
+    if (Platform.isWindows) {
+      base = Platform.environment['APPDATA'] ??
+          Platform.environment['USERPROFILE'] ??
+          Directory.current.path;
+    } else if (Platform.isMacOS) {
+      base = Platform.environment['HOME'] ?? Directory.current.path;
+    } else {
+      base = Platform.environment['XDG_CONFIG_HOME'] ??
+          '${Platform.environment['HOME'] ?? Directory.current.path}/.config';
+    }
+    final directory = Directory(
+      '$base${Platform.pathSeparator}Archino',
+    );
+    await directory.create(recursive: true);
+    return directory;
+  }
+
   static Future<String?> readLastProjectPath() async {
     final file = await _lastProjectFile();
     if (!await file.exists()) return null;
@@ -106,19 +132,9 @@ class ProjectRepository {
   }
 
   static Future<File> _lastProjectFile() async {
-    String base;
-    if (Platform.isWindows) {
-      base = Platform.environment['APPDATA'] ??
-          Platform.environment['USERPROFILE'] ??
-          Directory.current.path;
-    } else if (Platform.isMacOS) {
-      base = Platform.environment['HOME'] ?? Directory.current.path;
-    } else {
-      base = Platform.environment['XDG_CONFIG_HOME'] ??
-          '${Platform.environment['HOME'] ?? Directory.current.path}/.config';
-    }
+    final directory = await _applicationDataDirectory();
     return File(
-      '$base${Platform.pathSeparator}Archino${Platform.pathSeparator}last_project.txt',
+      '${directory.path}${Platform.pathSeparator}last_project.txt',
     );
   }
 }

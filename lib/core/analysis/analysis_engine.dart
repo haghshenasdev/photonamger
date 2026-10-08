@@ -173,9 +173,29 @@ class AnalysisEngine {
       await faceRecognitionEngine.initialize();
 
       final analyzed = <MediaItem, List<FaceInfo>>{};
+      const checkpointBatchSize = 100;
+      var lastDatabaseCheckpoint = DateTime.now();
+      var archivesImported = false;
+
+      Future<void> flushFaceCheckpoint() async {
+        if (analyzed.isEmpty) return;
+        final batch = Map<MediaItem, List<FaceInfo>>.from(analyzed);
+        await faceDatabaseService.mergeAnalysis(
+          databaseDirectory: databaseDirectory,
+          sourceRoots: sourceRoots,
+          analyzed: batch,
+          importArchives: !archivesImported,
+        );
+        analyzed.removeWhere((item, _) => batch.containsKey(item));
+        archivesImported = true;
+        lastDatabaseCheckpoint = DateTime.now();
+      }
 
       for (var index = 0; index < pending.length; index++) {
-        if (!await controller.checkpoint()) return;
+        if (!await controller.checkpoint()) {
+          await flushFaceCheckpoint();
+          return;
+        }
 
         final item = pending[index];
 
@@ -205,15 +225,22 @@ class AnalysisEngine {
 
           analyzed[item] = const [];
         }
+
+        // Persist completed face detections periodically. If the process or
+        // machine stops, only the current unflushed batch needs to be retried.
+        if (analyzed.length >= checkpointBatchSize ||
+            DateTime.now().difference(lastDatabaseCheckpoint) >=
+                const Duration(seconds: 20)) {
+          await flushFaceCheckpoint();
+        }
       }
 
-      if (controller.isCancelled) return;
+      if (controller.isCancelled) {
+        await flushFaceCheckpoint();
+        return;
+      }
 
-      await faceDatabaseService.mergeAnalysis(
-        databaseDirectory: databaseDirectory,
-        sourceRoots: sourceRoots,
-        analyzed: analyzed,
-      );
+      await flushFaceCheckpoint();
 
       _updateProgress(
         AnalysisStage.faces,

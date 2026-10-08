@@ -15,11 +15,10 @@ class FacePeoplePanel extends StatefulWidget {
   final String? selectedPersonId;
   final ValueChanged<String?> onPersonSelected;
   final Future<void> Function(String personId, String name)? onRename;
-  final Future<void> Function(
-    String primaryPersonId,
-    String secondaryPersonId,
-  )? onMerge;
+  final Future<void> Function(String primaryPersonId, String secondaryPersonId)?
+  onMerge;
   final List<FaceMergeSuggestion> suggestions;
+  final ValueChanged<FaceMergeSuggestion>? onDismissSuggestion;
   final Future<void> Function()? onSearchByImage;
 
   const FacePeoplePanel({
@@ -31,6 +30,7 @@ class FacePeoplePanel extends StatefulWidget {
     this.onRename,
     this.onMerge,
     this.suggestions = const [],
+    this.onDismissSuggestion,
     this.onSearchByImage,
   });
 
@@ -80,8 +80,7 @@ class _FacePeoplePanelState extends State<FacePeoplePanel> {
     final coverScores = <String, double>{};
 
     for (final face in widget.database.faces) {
-      counts[face.personId] =
-          (counts[face.personId] ?? 0) + 1;
+      counts[face.personId] = (counts[face.personId] ?? 0) + 1;
 
       final score = _faceScore(face);
       final oldScore = coverScores[face.personId];
@@ -111,8 +110,7 @@ class _FacePeoplePanelState extends State<FacePeoplePanel> {
     }).toList();
 
     result.sort((a, b) {
-      final countCompare =
-          (_counts[b.id] ?? 0).compareTo(_counts[a.id] ?? 0);
+      final countCompare = (_counts[b.id] ?? 0).compareTo(_counts[a.id] ?? 0);
 
       if (countCompare != 0) {
         return countCompare;
@@ -128,8 +126,7 @@ class _FacePeoplePanelState extends State<FacePeoplePanel> {
     final areaScore =
         math.sqrt(math.max(1.0, face.width * face.height)) / 180.0;
 
-    return face.confidence * 0.65 +
-        areaScore.clamp(0.0, 1.0) * 0.35;
+    return face.confidence * 0.65 + areaScore.clamp(0.0, 1.0) * 0.35;
   }
 
   FacePerson? _personById(String id) {
@@ -153,8 +150,8 @@ class _FacePeoplePanelState extends State<FacePeoplePanel> {
             controller: controller,
             autofocus: true,
             placeholder: 'مثلاً مهدی',
-            onSubmitted: (_) => Navigator.of(context)
-                .pop(controller.text.trim()),
+            onSubmitted: (_) =>
+                Navigator.of(context).pop(controller.text.trim()),
           ),
           actions: [
             Button(
@@ -162,8 +159,8 @@ class _FacePeoplePanelState extends State<FacePeoplePanel> {
               child: const Text('انصراف'),
             ),
             FilledButton(
-              onPressed: () => Navigator.of(context)
-                  .pop(controller.text.trim()),
+              onPressed: () =>
+                  Navigator.of(context).pop(controller.text.trim()),
               child: const Text('ذخیره'),
             ),
           ],
@@ -211,10 +208,7 @@ class _FacePeoplePanelState extends State<FacePeoplePanel> {
     setState(() => _mergeIds.clear());
   }
 
-  Future<String?> _askPrimary(
-    FacePerson first,
-    FacePerson second,
-  ) {
+  Future<String?> _askPrimary(FacePerson first, FacePerson second) {
     return showDialog<String>(
       context: context,
       builder: (context) {
@@ -224,9 +218,7 @@ class _FacePeoplePanelState extends State<FacePeoplePanel> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'همه چهره‌های شخص دوم به شخص اول منتقل می‌شوند.',
-              ),
+              const Text('همه چهره‌های شخص دوم به شخص اول منتقل می‌شوند.'),
               const SizedBox(height: 12),
               Text('شخص اول: ${first.name}'),
               Text('شخص دوم: ${second.name}'),
@@ -240,13 +232,11 @@ class _FacePeoplePanelState extends State<FacePeoplePanel> {
               child: const Text('انصراف'),
             ),
             Button(
-              onPressed: () =>
-                  Navigator.of(context).pop(first.id),
+              onPressed: () => Navigator.of(context).pop(first.id),
               child: Text('حفظ «${first.name}»'),
             ),
             FilledButton(
-              onPressed: () =>
-                  Navigator.of(context).pop(second.id),
+              onPressed: () => Navigator.of(context).pop(second.id),
               child: Text('حفظ «${second.name}»'),
             ),
           ],
@@ -280,8 +270,14 @@ class _FacePeoplePanelState extends State<FacePeoplePanel> {
           ],
         ),
         actions: [
-          Button(onPressed: () => Navigator.of(context).pop(false), child: const Text('لغو')),
-          FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('ادغام')),
+          Button(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('لغو'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('ادغام'),
+          ),
         ],
       ),
     );
@@ -305,19 +301,16 @@ class _FacePeoplePanelState extends State<FacePeoplePanel> {
               const Expanded(
                 child: Text(
                   'افراد',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                 ),
               ),
               Text(
                 '${widget.database.persons.length}',
                 style: TextStyle(
                   fontSize: 12,
-                  color: FluentTheme.of(context)
-                      .resources
-                      .textFillColorSecondary,
+                  color: FluentTheme.of(
+                    context,
+                  ).resources.textFillColorSecondary,
                 ),
               ),
             ],
@@ -371,6 +364,7 @@ class _FacePeoplePanelState extends State<FacePeoplePanel> {
               countByPerson: _counts,
               sourceRoots: widget.sourceRoots,
               onMerge: _mergeSuggestion,
+              onDismiss: widget.onDismissSuggestion,
             ),
           ],
 
@@ -423,35 +417,31 @@ class _FacePeoplePanelState extends State<FacePeoplePanel> {
                     itemCount: persons.length,
                     itemBuilder: (context, index) {
                       final person = persons[index];
-                      final selected =
-                          person.id == widget.selectedPersonId;
+                      final selected = person.id == widget.selectedPersonId;
                       final merging = _mergeIds.contains(person.id);
                       final cover = _covers[person.id];
 
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 6),
                         child: HoverButton(
-                          onPressed: () =>
-                              widget.onPersonSelected(person.id),
+                          onPressed: () => widget.onPersonSelected(person.id),
                           builder: (context, states) {
                             return Container(
                               padding: const EdgeInsets.all(7),
                               decoration: BoxDecoration(
                                 color: merging
-                                    ? FluentTheme.of(context)
-                                        .accentColor
-                                        .withOpacity(0.18)
+                                    ? FluentTheme.of(
+                                        context,
+                                      ).accentColor.withOpacity(0.18)
                                     : selected
-                                        ? FluentTheme.of(context)
-                                            .accentColor
-                                            .withOpacity(0.10)
-                                        : null,
-                                borderRadius:
-                                    BorderRadius.circular(8),
+                                    ? FluentTheme.of(
+                                        context,
+                                      ).accentColor.withOpacity(0.10)
+                                    : null,
+                                borderRadius: BorderRadius.circular(8),
                                 border: Border.all(
                                   color: merging || selected
-                                      ? FluentTheme.of(context)
-                                          .accentColor
+                                      ? FluentTheme.of(context).accentColor
                                       : Colors.transparent,
                                 ),
                               ),
@@ -470,11 +460,9 @@ class _FacePeoplePanelState extends State<FacePeoplePanel> {
                                         Text(
                                           person.name,
                                           maxLines: 1,
-                                          overflow:
-                                              TextOverflow.ellipsis,
+                                          overflow: TextOverflow.ellipsis,
                                           style: const TextStyle(
-                                            fontWeight:
-                                                FontWeight.w600,
+                                            fontWeight: FontWeight.w600,
                                           ),
                                         ),
                                         const SizedBox(height: 2),
@@ -482,9 +470,9 @@ class _FacePeoplePanelState extends State<FacePeoplePanel> {
                                           '${_counts[person.id] ?? 0} چهره',
                                           style: TextStyle(
                                             fontSize: 11,
-                                            color: FluentTheme.of(context)
-                                                .resources
-                                                .textFillColorSecondary,
+                                            color: FluentTheme.of(
+                                              context,
+                                            ).resources.textFillColorSecondary,
                                           ),
                                         ),
                                       ],
@@ -497,8 +485,7 @@ class _FacePeoplePanelState extends State<FacePeoplePanel> {
                                           : FluentIcons.link,
                                       size: 14,
                                     ),
-                                    onPressed: () =>
-                                        _toggleMerge(person.id),
+                                    onPressed: () => _toggleMerge(person.id),
                                   ),
                                   IconButton(
                                     icon: const Icon(
@@ -520,8 +507,7 @@ class _FacePeoplePanelState extends State<FacePeoplePanel> {
           if (widget.selectedPersonId != null) ...[
             const SizedBox(height: 8),
             Button(
-              onPressed: () =>
-                  widget.onPersonSelected(null),
+              onPressed: () => widget.onPersonSelected(null),
               child: const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -539,9 +525,7 @@ class _FacePeoplePanelState extends State<FacePeoplePanel> {
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 10,
-              color: FluentTheme.of(context)
-                  .resources
-                  .textFillColorTertiary,
+              color: FluentTheme.of(context).resources.textFillColorTertiary,
             ),
           ),
         ],
@@ -557,6 +541,7 @@ class _MergeSuggestions extends StatelessWidget {
   final Map<String, int> countByPerson;
   final List<String> sourceRoots;
   final Future<void> Function(FaceMergeSuggestion suggestion) onMerge;
+  final ValueChanged<FaceMergeSuggestion>? onDismiss;
 
   const _MergeSuggestions({
     required this.suggestions,
@@ -565,27 +550,29 @@ class _MergeSuggestions extends StatelessWidget {
     required this.countByPerson,
     required this.sourceRoots,
     required this.onMerge,
+    required this.onDismiss,
   });
 
   @override
   Widget build(BuildContext context) {
-    final shown = suggestions.take(5).toList();
+    final shown = suggestions;
 
     return Expander(
       header: Row(
         children: [
           const Icon(FluentIcons.lightbulb, size: 15),
           const SizedBox(width: 6),
-          const Expanded(
-            child: Text('پیشنهادهای ادغام افراد'),
-          ),
+          const Expanded(child: Text('پیشنهادهای ادغام افراد')),
           InfoBadge(source: Text('${suggestions.length}')),
         ],
       ),
-      content: Column(
-        children: [
-          for (final suggestion in shown)
-            _SuggestionRow(
+      content: SizedBox(
+        height: math.min(360.0, math.max(90.0, shown.length * 58.0)).toDouble(),
+        child: ListView.builder(
+          itemCount: shown.length,
+          itemBuilder: (context, index) {
+            final suggestion = shown[index];
+            return _SuggestionRow(
               suggestion: suggestion,
               first: personById(suggestion.firstPersonId),
               second: personById(suggestion.secondPersonId),
@@ -595,8 +582,10 @@ class _MergeSuggestions extends StatelessWidget {
               secondCount: countByPerson[suggestion.secondPersonId] ?? 0,
               sourceRoots: sourceRoots,
               onMerge: onMerge,
-            ),
-        ],
+              onDismiss: onDismiss,
+            );
+          },
+        ),
       ),
     );
   }
@@ -612,6 +601,7 @@ class _SuggestionRow extends StatelessWidget {
   final int secondCount;
   final List<String> sourceRoots;
   final Future<void> Function(FaceMergeSuggestion suggestion) onMerge;
+  final ValueChanged<FaceMergeSuggestion>? onDismiss;
 
   const _SuggestionRow({
     required this.suggestion,
@@ -623,6 +613,7 @@ class _SuggestionRow extends StatelessWidget {
     required this.secondCount,
     required this.sourceRoots,
     required this.onMerge,
+    required this.onDismiss,
   });
 
   @override
@@ -638,24 +629,14 @@ class _SuggestionRow extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
-          color: FluentTheme.of(context)
-              .resources
-              .controlFillColorSecondary,
+          color: FluentTheme.of(context).resources.controlFillColorSecondary,
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
           children: [
-            _FaceCrop(
-              face: firstCover,
-              sourceRoots: sourceRoots,
-              size: 42,
-            ),
+            _FaceCrop(face: firstCover, sourceRoots: sourceRoots, size: 42),
             const SizedBox(width: 5),
-            _FaceCrop(
-              face: secondCover,
-              sourceRoots: sourceRoots,
-              size: 42,
-            ),
+            _FaceCrop(face: secondCover, sourceRoots: sourceRoots, size: 42),
             const SizedBox(width: 7),
             Expanded(
               child: Column(
@@ -676,9 +657,9 @@ class _SuggestionRow extends StatelessWidget {
                     '$firstCount / $secondCount چهره',
                     style: TextStyle(
                       fontSize: 10,
-                      color: FluentTheme.of(context)
-                          .resources
-                          .textFillColorSecondary,
+                      color: FluentTheme.of(
+                        context,
+                      ).resources.textFillColorSecondary,
                     ),
                   ),
                 ],
@@ -688,6 +669,11 @@ class _SuggestionRow extends StatelessWidget {
               icon: const Icon(FluentIcons.link, size: 14),
               onPressed: () => onMerge(suggestion),
             ),
+            if (onDismiss != null)
+              IconButton(
+                icon: const Icon(FluentIcons.cancel, size: 14),
+                onPressed: () => onDismiss!(suggestion),
+              ),
           ],
         ),
       ),
@@ -734,7 +720,10 @@ Future<Uint8List?> _createFaceCropIsolate(Map<String, dynamic> data) async {
     final cropLeft = math.max(0, (left - padding).round());
     final cropTop = math.max(0, (top - padding).round());
     final cropRight = math.min(decoded.width, (left + width + padding).round());
-    final cropBottom = math.min(decoded.height, (top + height + padding).round());
+    final cropBottom = math.min(
+      decoded.height,
+      (top + height + padding).round(),
+    );
 
     final cropWidth = math.max(1, cropRight - cropLeft);
     final cropHeight = math.max(1, cropBottom - cropTop);
@@ -766,10 +755,7 @@ class _FaceCropCache {
   static final List<String> _order = <String>[];
   static const int _maxEntries = 300;
 
-  static Future<Uint8List?> get(
-    StoredFace face,
-    List<String> sourceRoots,
-  ) {
+  static Future<Uint8List?> get(StoredFace face, List<String> sourceRoots) {
     final key = '${face.id}|${face.rootKey}|${face.relativePath}';
     final existing = _cache[key];
     if (existing != null) return existing;
@@ -779,16 +765,13 @@ class _FaceCropCache {
       sourceRoots,
     );
 
-    final future = compute(
-      _createFaceCropIsolate,
-      <String, dynamic>{
-        'path': path,
-        'left': face.left,
-        'top': face.top,
-        'width': face.width,
-        'height': face.height,
-      },
-    );
+    final future = compute(_createFaceCropIsolate, <String, dynamic>{
+      'path': path,
+      'left': face.left,
+      'top': face.top,
+      'width': face.width,
+      'height': face.height,
+    });
 
     _cache[key] = future;
     _order.add(key);
@@ -822,15 +805,10 @@ class _FaceCrop extends StatelessWidget {
         width: size,
         height: size,
         decoration: BoxDecoration(
-          color: FluentTheme.of(context)
-              .resources
-              .controlFillColorSecondary,
+          color: FluentTheme.of(context).resources.controlFillColorSecondary,
           borderRadius: BorderRadius.circular(7),
         ),
-        child: const Icon(
-          FluentIcons.contact,
-          size: 22,
-        ),
+        child: const Icon(FluentIcons.contact, size: 22),
       );
     }
 
@@ -852,13 +830,10 @@ class _FaceCrop extends StatelessWidget {
                     filterQuality: FilterQuality.low,
                   )
                 : Container(
-                    color: FluentTheme.of(context)
-                        .resources
-                        .controlFillColorSecondary,
-                    child: const Icon(
-                      FluentIcons.contact,
-                      size: 22,
-                    ),
+                    color: FluentTheme.of(
+                      context,
+                    ).resources.controlFillColorSecondary,
+                    child: const Icon(FluentIcons.contact, size: 22),
                   ),
           ),
         );

@@ -94,6 +94,8 @@ class _HomePageState extends State<HomePage> {
 
   Timer? _saveTimer;
   Future<void> _saveQueue = Future<void>.value();
+  bool _saveInProgress = false;
+  bool _saveRequestedAgain = false;
 
   @override
   void initState() {
@@ -113,11 +115,10 @@ class _HomePageState extends State<HomePage> {
   void dispose() {
     _saveTimer?.cancel();
     // Persist the latest in-memory state even if the debounce timer had not fired yet.
-    if (_projectPath != null) {
-      unawaited(_enqueueProjectSave().catchError((Object e) {
-        debugPrint('Final project save error: $e');
-      }));
-    }
+    // If the user has not named the project yet, save to the recovery project.
+    unawaited(_enqueueProjectSave().catchError((Object e) {
+      debugPrint('Final project save error: $e');
+    }));
     unawaited(engine.faceRecognitionEngine.dispose());
     super.dispose();
   }
@@ -670,13 +671,29 @@ class _HomePageState extends State<HomePage> {
       //
       // تمام StoredFaceهای شخص دوم به شخص اصلی منتقل می‌شوند.
       // ============================================================
-      await const FaceDatabaseService().mergePersons(
+      const faceService = FaceDatabaseService();
+      await faceService.mergePersons(
         databaseDirectory: directory,
         primaryPersonId: primaryId,
         secondaryPersonId: secondaryId,
         preferredName: chosenName,
         sourceRoots: sourcePaths,
       );
+
+      // Verify the persisted result before changing in-memory MediaItems or
+      // displaying success. Previously the UI could report success even when
+      // mergePersons returned without changing the database.
+      final persistedDatabase = await faceService.load(directory);
+      final primaryPersisted =
+          persistedDatabase.persons.any((person) => person.id == primaryId);
+      final secondaryPersisted =
+          persistedDatabase.persons.any((person) => person.id == secondaryId);
+      if (!primaryPersisted || secondaryPersisted) {
+        throw StateError(
+          'تغییر ادغام در پایگاه چهره‌ها ثبت نشد؛ '
+          'فرد اصلی یا فرد دوم وضعیت مورد انتظار را ندارد.',
+        );
+      }
 
       if (!mounted) return;
 
@@ -736,6 +753,19 @@ class _HomePageState extends State<HomePage> {
       await _loadFaceDatabase();
 
       if (!mounted) return;
+
+      // Do not show a success message unless the refreshed database confirms
+      // that the secondary person was actually removed and the primary remains.
+      final primaryStillExists =
+          _faceDatabase.persons.any((person) => person.id == primaryId);
+      final secondaryStillExists =
+          _faceDatabase.persons.any((person) => person.id == secondaryId);
+      if (!primaryStillExists || secondaryStillExists) {
+        throw StateError(
+          'ادغام تأیید نشد؛ فرد دوم هنوز در فهرست پایگاه چهره‌ها وجود دارد. '
+          'پروژه را ذخیره نکنید و دوباره تلاش کنید.',
+        );
+      }
 
       // ============================================================
       // 5. پروژه را بعد از اصلاح MediaItemها ذخیره می‌کنیم.
@@ -1045,6 +1075,14 @@ class _HomePageState extends State<HomePage> {
     return '${ids[0]}|${ids[1]}';
   }
 
+  void _dismissFaceMergeSuggestion(FaceMergeSuggestion suggestion) {
+    final key = _mergeSuggestionKey(suggestion);
+    if (!mounted) return;
+    setState(() {
+      _dismissedFaceMergeSuggestions.add(key);
+    });
+  }
+
   FacePerson? _facePersonById(String? id) {
     if (id == null) return null;
     for (final person in _faceDatabase.persons) {
@@ -1074,8 +1112,30 @@ class _HomePageState extends State<HomePage> {
           ? suggestion.secondPersonId
           : suggestion.firstPersonId;
       await _mergeFacePersons(selected, other);
+      if (!mounted) return;
+
+      // Only advance after the secondary person has truly disappeared from the
+      // refreshed database. On failure, keep the same suggestion visible so
+      // the user can retry rather than silently skipping it.
+      final mergeWasApplied =
+          !_faceDatabase.persons.any((person) => person.id == other) &&
+          _faceDatabase.persons.any((person) => person.id == selected);
+      if (mergeWasApplied) {
+        final service = const FaceDatabaseService();
+        final key = _mergeSuggestionKey(suggestion);
+        setState(() {
+          _dismissedFaceMergeSuggestions.add(key);
+          _faceMergeSuggestions = service.findMergeSuggestions(_faceDatabase);
+          _dismissedFaceMergeSuggestions.removeWhere((dismissedKey) {
+            final parts = dismissedKey.split('|');
+            return parts.length != 2 ||
+                !_faceDatabase.persons.any((p) => p.id == parts[0]) ||
+                !_faceDatabase.persons.any((p) => p.id == parts[1]);
+          });
+        });
+      }
     } else {
-      setState(() => _dismissedFaceMergeSuggestions.add(_mergeSuggestionKey(suggestion)));
+      _dismissFaceMergeSuggestion(suggestion);
     }
   }
 
@@ -1274,7 +1334,11 @@ class _HomePageState extends State<HomePage> {
                             onPersonSelected: _selectFacePerson,
                             onRename: _renameFacePerson,
                             onMerge: _mergeFacePersons,
-                            suggestions: _faceMergeSuggestions,
+                            suggestions: _faceMergeSuggestions
+                                .where((s) => !_dismissedFaceMergeSuggestions
+                                    .contains(_mergeSuggestionKey(s)))
+                                .toList(growable: false),
+                            onDismissSuggestion: _dismissFaceMergeSuggestion,
                             onSearchByImage: _searchFaceByImage,
                           ),
                         ),
@@ -2400,6 +2464,14 @@ class _HomePageState extends State<HomePage> {
       });
     }
 
+    // Mark the analysis as incomplete and persist a checkpoint before starting.
+    // Each later progress callback refreshes this checkpoint without resetting
+    // the timer, so continuous progress cannot postpone saving forever.
+    final checkpointProject = _ensureProject();
+    checkpointProject.analysisCompleted = false;
+    _syncProjectState();
+    await _enqueueProjectSave();
+
     try {
       final result = await engine.run(
         mediaItems,
@@ -2722,54 +2794,91 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _saveCurrentProjectNow() async {
-    if (_projectPath == null) return;
-
     _syncProjectState();
 
+    final targetPath = _projectPath ??
+        await ProjectRepository.recoveryProjectPath();
+
+    // Recognition writes its working database incrementally. Embed that latest
+    // disk snapshot in every project checkpoint, rather than the potentially
+    // stale in-memory copy that is refreshed only after the analysis completes.
+    try {
+      final workingDirectory = _getFaceDatabaseDirectory();
+      final diskDatabase = await const FaceDatabaseService().load(workingDirectory);
+      if (diskDatabase.persons.isNotEmpty ||
+          diskDatabase.faces.isNotEmpty ||
+          diskDatabase.scans.isNotEmpty ||
+          diskDatabase.rejections.isNotEmpty) {
+        _ensureProject().faceDatabase = diskDatabase.toJson();
+      }
+    } catch (e) {
+      debugPrint('Could not embed face checkpoint: $e');
+    }
+
     await ProjectRepository.save(
-      path: _projectPath!,
+      path: targetPath,
       project: _ensureProject(),
     );
 
-    // The project file is now the authoritative store. Remove legacy sidecars
-    // only after a successful atomic project save.
-    final projectDirectory = File(_projectPath!).parent.path;
-    for (final legacyName in <String>[
-      FaceDatabaseService.fileName,
-      CategoryLearningService.fileName,
-    ]) {
-      final legacy = File(p.join(projectDirectory, legacyName));
-      if (await legacy.exists()) {
-        try {
-          await legacy.delete();
-        } catch (e) {
-          debugPrint('Could not remove legacy sidecar ${legacy.path}: $e');
+    // Do not delete working sidecars while analysis is running: face recognition
+    // uses them as its durable incremental cache. Once it finishes, the embedded
+    // project database is refreshed and these legacy copies may be removed.
+    if (_projectPath != null && !engine.isRunning) {
+      final projectDirectory = File(_projectPath!).parent.path;
+      for (final legacyName in <String>[
+        FaceDatabaseService.fileName,
+        CategoryLearningService.fileName,
+      ]) {
+        final legacy = File(p.join(projectDirectory, legacyName));
+        if (await legacy.exists()) {
+          try {
+            await legacy.delete();
+          } catch (e) {
+            debugPrint('Could not remove legacy sidecar ${legacy.path}: $e');
+          }
         }
       }
+      await ProjectRepository.rememberProjectPath(_projectPath!);
     }
-
-    await ProjectRepository.rememberProjectPath(_projectPath!);
   }
 
   Future<void> _enqueueProjectSave() {
-    if (_projectPath == null) return Future<void>.value();
+    // Coalesce bursts of progress updates into at most one follow-up save.
+    // This prevents a large 100k-photo project from building an unbounded queue
+    // of expensive JSON serializations when a checkpoint takes several seconds.
+    if (_saveInProgress) {
+      _saveRequestedAgain = true;
+      return _saveQueue;
+    }
 
-    final next = _saveQueue.then(
-      (_) => _saveCurrentProjectNow(),
-      onError: (_) => _saveCurrentProjectNow(),
-    );
-
-    _saveQueue = next;
-    return next;
+    _saveInProgress = true;
+    final completer = Completer<void>();
+    _saveQueue = () async {
+      try {
+        do {
+          _saveRequestedAgain = false;
+          await _saveCurrentProjectNow();
+        } while (_saveRequestedAgain);
+        completer.complete();
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      } finally {
+        _saveInProgress = false;
+      }
+    }();
+    return completer.future;
   }
 
   void _scheduleProjectSave() {
-    if (_projectPath == null) return;
+    // Throttle instead of debouncing: frequent progress events must not keep
+    // pushing the save into the future during a long analysis.
+    if (_saveTimer != null) return;
 
-    _saveTimer?.cancel();
-
-    _saveTimer = Timer(const Duration(milliseconds: 700), () {
-      _enqueueProjectSave();
+    _saveTimer = Timer(const Duration(seconds: 3), () {
+      _saveTimer = null;
+      unawaited(_enqueueProjectSave().catchError((Object e) {
+        debugPrint('Automatic checkpoint save error: $e');
+      }));
     });
   }
 
@@ -2826,6 +2935,10 @@ class _HomePageState extends State<HomePage> {
         _projectPath = path;
         _workingDatabaseDirectory = File(path).parent.path;
       });
+
+      // Save immediately to the chosen destination; do not leave the first
+      // named save waiting for the autosave timer.
+      await _enqueueProjectSave();
 
       // دیتابیس کاری چهره را از workspace موقت به کنار فایل پروژه منتقل می‌کنیم
       // تا با باز کردن پروژه در اجرای بعدی همان هویت‌ها در دسترس باشند.
@@ -2905,6 +3018,7 @@ class _HomePageState extends State<HomePage> {
       _cachedPortableAnalysisPaths = <String>{};
       _faceDatabaseDirty = false;
     });
+    _scheduleProjectSave();
   }
 
   Future<void> _openProject() async {
@@ -2916,16 +3030,59 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _restoreLastProject() async {
     try {
-      final path = await ProjectRepository.readLastProjectPath();
+      final lastPath = await ProjectRepository.readLastProjectPath();
+      final recoveryPath = await ProjectRepository.recoveryProjectPath();
+      final hasRecovery = await File(recoveryPath).exists() ||
+          await File('$recoveryPath.tmp').exists() ||
+          await File('$recoveryPath.bak').exists();
 
-      if (path == null || path.trim().isEmpty) return;
-      // ProjectRepository can recover from .tmp/.bak even if the main file is missing.
-      final hasRecoverableCopy = await File(path).exists() ||
-          await File('$path.tmp').exists() ||
-          await File('$path.bak').exists();
-      if (!hasRecoverableCopy) return;
+      var hasLastProject = false;
+      if (lastPath != null && lastPath.trim().isNotEmpty) {
+        hasLastProject = await File(lastPath).exists() ||
+            await File('$lastPath.tmp').exists() ||
+            await File('$lastPath.bak').exists();
+      }
 
-      await _loadProjectFromPath(path, showRecoveryPrompt: true);
+      // Compare project timestamps: an autosaved recovery can contain work
+      // that was never written to the user's named project. Never discard it.
+      if (hasRecovery) {
+        var recoveryIsNewer = !hasLastProject;
+        if (hasLastProject && lastPath != null) {
+          try {
+            final recoveryProject = await ProjectRepository.load(recoveryPath);
+            final namedProject = await ProjectRepository.load(lastPath);
+            recoveryIsNewer = recoveryProject.updatedAt.isAfter(
+              namedProject.updatedAt,
+            );
+          } catch (e) {
+            debugPrint('Recovery comparison error: $e');
+            recoveryIsNewer = !hasLastProject;
+          }
+        }
+        if (recoveryIsNewer) {
+          await _loadProjectFromPath(recoveryPath, showRecoveryPrompt: true);
+          if (mounted) {
+            await displayInfoBar(
+              context,
+              builder: (context, close) => InfoBar(
+                title: const Text('نسخه بازیابی‌شده باز شد'),
+                content: const Text(
+                  'آخرین کارهای ذخیره‌شده خودکار بازیابی شدند. برای نگهداری دائمی، پروژه را با «ذخیره با نام» ذخیره کنید.',
+                ),
+                severity: InfoBarSeverity.warning,
+                onClose: close,
+              ),
+            );
+          }
+          return;
+        }
+      }
+
+      if (hasLastProject && lastPath != null) {
+        await _loadProjectFromPath(lastPath, showRecoveryPrompt: true);
+      } else if (hasRecovery) {
+        await _loadProjectFromPath(recoveryPath, showRecoveryPrompt: true);
+      }
     } catch (e) {
       debugPrint('Last project restore error: $e');
     }

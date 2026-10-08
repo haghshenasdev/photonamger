@@ -1392,10 +1392,13 @@ class FaceDatabaseService {
     required String databaseDirectory,
     required List<String> sourceRoots,
     required Map<MediaItem, List<FaceInfo>> analyzed,
+    bool importArchives = true,
   }) async {
     final db = await load(databaseDirectory);
 
-    await importPortableArchives(sourceRoots: sourceRoots, database: db);
+    if (importArchives) {
+      await importPortableArchives(sourceRoots: sourceRoots, database: db);
+    }
 
     final analysisFingerprints = <String>{};
 
@@ -1549,7 +1552,14 @@ class FaceDatabaseService {
     }
 
     if (primary == null || secondary == null) {
-      return;
+      // Never report a successful merge when the working database does not
+      // contain both requested people. This usually means the UI has stale IDs
+      // or the wrong project database directory was supplied.
+      throw StateError(
+        'ادغام انجام نشد: یکی از افراد در پایگاه چهره‌ها پیدا نشد '
+        '(اصلی: $primaryPersonId، دوم: $secondaryPersonId). '
+        'پروژه را دوباره بارگذاری کنید و مجدداً تلاش کنید.',
+      );
     }
 
     final chosenName = preferredName?.trim();
@@ -1596,23 +1606,29 @@ class FaceDatabaseService {
 
     await save(databaseDirectory, db);
 
-    await _syncPersonToPortableManifests(
-      databaseDirectory: databaseDirectory,
-      sourceRoots: sourceRoots,
-      personId: primaryPersonId,
-    );
-
-    await _removePersonFromPortableManifests(
-      databaseDirectory: databaseDirectory,
-      sourceRoots: sourceRoots,
-      personId: secondaryPersonId,
-    );
+    // The working database is the source of truth for the merge. Portable
+    // manifest updates are best-effort: a missing/locked archive manifest must
+    // not make the UI believe that the core merge failed after it was saved.
+    try {
+      await _syncPersonToPortableManifests(
+        databaseDirectory: databaseDirectory,
+        sourceRoots: sourceRoots,
+        personId: primaryPersonId,
+      );
+      await _removePersonFromPortableManifests(
+        databaseDirectory: databaseDirectory,
+        sourceRoots: sourceRoots,
+        personId: secondaryPersonId,
+      );
+    } catch (error, stackTrace) {
+      stderr.writeln('Face merge saved, but portable manifest sync failed: $error\n$stackTrace');
+    }
   }
 
   List<FaceMergeSuggestion> findMergeSuggestions(
     FaceDatabase db, {
     double threshold = 0.57,
-    int maxResults = 12,
+    int? maxResults,
   }) {
     if (db.persons.length < 2 || db.faces.isEmpty) {
       return const [];
@@ -1686,7 +1702,10 @@ class FaceDatabaseService {
 
     suggestions.sort((a, b) => b.similarity.compareTo(a.similarity));
 
-    if (suggestions.length > maxResults) {
+    // Return every qualifying pair by default. Callers may still request a
+    // bounded result set explicitly when they need one.
+    if (maxResults != null && maxResults >= 0 &&
+        suggestions.length > maxResults) {
       return suggestions.sublist(0, maxResults);
     }
 
