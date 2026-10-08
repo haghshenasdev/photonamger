@@ -2054,8 +2054,23 @@ class FaceDatabaseService {
     var secondBestScore = -1.0;
 
     for (final person in db.persons) {
-      if (fingerprint != null && _isRejected(db, fingerprint, person.id)) {
-        continue;
+      if (fingerprint != null) {
+        // A single image can contain multiple different people. Never use a
+        // person already assigned to another detection in this same image as
+        // a match candidate; otherwise the first new face can absorb every
+        // later face from the same file.
+        final alreadyAssignedInThisImage = db.faces.any(
+          (face) =>
+              face.fingerprint == fingerprint &&
+              face.personId == person.id,
+        );
+        if (alreadyAssignedInThisImage) {
+          continue;
+        }
+
+        if (_isRejected(db, fingerprint, person.id)) {
+          continue;
+        }
       }
 
       var score = -1.0;

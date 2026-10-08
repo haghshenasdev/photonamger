@@ -166,11 +166,52 @@ class _HomePageState extends State<HomePage> {
 
     final directory = _getFaceDatabaseDirectory();
     const service = FaceDatabaseService();
+    final diskFile = service.fileFor(directory);
 
-    final embeddedFaces = _project?.faceDatabase;
-    final db = embeddedFaces != null
-        ? FaceDatabase.fromJson(Map<String, dynamic>.from(embeddedFaces))
-        : await service.load(directory);
+    // The project JSON is the durable store, while FaceDatabaseService uses a
+    // working sidecar during recognition. Always seed that working file from
+    // the embedded database when it is missing/empty, but after recognition
+    // prefer the disk database because it contains the newly detected faces.
+    final embeddedJson = _project?.faceDatabase;
+    final embeddedDb = embeddedJson == null
+        ? null
+        : FaceDatabase.fromJson(Map<String, dynamic>.from(embeddedJson));
+
+    FaceDatabase db;
+    var diskHasData = false;
+    final embeddedHasFaces = embeddedDb != null &&
+        (embeddedDb.persons.isNotEmpty || embeddedDb.faces.isNotEmpty);
+    if (await diskFile.exists()) {
+      final diskDb = await service.load(directory);
+      final diskHasFaces =
+          diskDb.persons.isNotEmpty || diskDb.faces.isNotEmpty;
+      diskHasData = diskHasFaces ||
+          (!embeddedHasFaces &&
+              (diskDb.scans.isNotEmpty || diskDb.rejections.isNotEmpty));
+      db = diskHasData ? diskDb : (embeddedDb ?? diskDb);
+    } else {
+      db = embeddedDb ?? FaceDatabase();
+    }
+
+    final embeddedHasData = embeddedDb != null &&
+        (embeddedDb.persons.isNotEmpty ||
+            embeddedDb.faces.isNotEmpty ||
+            embeddedDb.scans.isNotEmpty ||
+            embeddedDb.rejections.isNotEmpty);
+
+    // Detection reads its starting state from disk. Without this seed it would
+    // create a fresh database, and the following UI reload would then replace
+    // the current project database with stale/empty data.
+    if (!diskHasData && embeddedHasData) {
+      await service.save(directory, embeddedDb);
+      db = embeddedDb;
+    }
+
+    // Keep the in-memory project synchronized immediately. This is especially
+    // important after face detection, rename, reject, or merge operations.
+    if (_project != null) {
+      _project!.faceDatabase = db.toJson();
+    }
 
     if (!mounted) return;
 
@@ -181,6 +222,12 @@ class _HomePageState extends State<HomePage> {
       _faceDatabase = db;
       _faceMergeSuggestions = suggestions;
     });
+
+    debugPrint(
+      'Face database loaded: ${db.persons.length} persons, '
+      '${db.faces.length} faces, ${db.scans.length} scans '
+      '(diskHasData=$diskHasData, directory=$directory)',
+    );
   }
 
   Future<void> _importArchiveFromDisk() async {
