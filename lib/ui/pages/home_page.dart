@@ -73,6 +73,7 @@ class _HomePageState extends State<HomePage> {
   String? _selectedFacePersonId;
   int _rightPanelTab = 0;
   List<FaceMergeSuggestion> _faceMergeSuggestions = const [];
+  final Set<String> _dismissedFaceMergeSuggestions = <String>{};
 
   // Portable archive currently associated with the opened source folders.
   String? _portableArchiveRoot;
@@ -851,6 +852,84 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  String _mergeSuggestionKey(FaceMergeSuggestion suggestion) {
+    final ids = [suggestion.firstPersonId, suggestion.secondPersonId]..sort();
+    return '${ids[0]}|${ids[1]}';
+  }
+
+  FacePerson? _facePersonById(String? id) {
+    if (id == null) return null;
+    for (final person in _faceDatabase.persons) {
+      if (person.id == id) return person;
+    }
+    return null;
+  }
+
+  FaceMergeSuggestion? get _activePersonMergeSuggestion {
+    final selected = _selectedFacePersonId;
+    if (selected == null) return null;
+    for (final suggestion in _faceMergeSuggestions) {
+      if (_dismissedFaceMergeSuggestions.contains(_mergeSuggestionKey(suggestion))) continue;
+      if (suggestion.firstPersonId == selected || suggestion.secondPersonId == selected) {
+        return suggestion;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _handleMergeSuggestion(bool samePerson) async {
+    final suggestion = _activePersonMergeSuggestion;
+    final selected = _selectedFacePersonId;
+    if (suggestion == null || selected == null) return;
+    if (samePerson) {
+      final other = suggestion.firstPersonId == selected
+          ? suggestion.secondPersonId
+          : suggestion.firstPersonId;
+      await _mergeFacePersons(selected, other);
+    } else {
+      setState(() => _dismissedFaceMergeSuggestions.add(_mergeSuggestionKey(suggestion)));
+    }
+  }
+
+  Widget _buildActiveMergeSuggestionCard(FaceMergeSuggestion suggestion) {
+    final selected = _facePersonById(_selectedFacePersonId);
+    final otherId = suggestion.firstPersonId == _selectedFacePersonId
+        ? suggestion.secondPersonId
+        : suggestion.firstPersonId;
+    final other = _facePersonById(otherId);
+    if (selected == null || other == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Card(
+        padding: const EdgeInsets.all(10),
+        child: Row(
+        children: [
+          const Icon(FluentIcons.lightbulb, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'پیشنهاد ادغام: «${selected.name}» با «${other.name}» '
+              '(${(suggestion.similarity * 100).round()}٪ شباهت). همین شخص است؟',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Button(
+            onPressed: () => _handleMergeSuggestion(false),
+            child: const Text('خیر، بعدی'),
+          ),
+          const SizedBox(width: 6),
+          FilledButton(
+            onPressed: () => _handleMergeSuggestion(true),
+            child: const Text('بله، ادغام'),
+          ),
+        ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return NavigationView(
@@ -912,6 +991,7 @@ class _HomePageState extends State<HomePage> {
                       },
 
                       onAnalyzeGroupRequested: _analyzeSingleGroupDuplicates,
+                      onAnalyzeGroupFacesRequested: _analyzeGroupFacesOnly,
 
                       onGroupsMerged: (selectedGroups) {
                         mergeGroups(selectedGroups);
@@ -925,20 +1005,28 @@ class _HomePageState extends State<HomePage> {
 
                   Expanded(
                     flex: 2,
-                    child: MediaGrid(
-                      items: _selectedFacePersonId != null
-                          ? _buildFaceGridItems()
-                          : buildGridItems(),
-                      selectedPersonId: _selectedFacePersonId,
-                      onFaceSelected: _selectFacePerson,
-                      faceNameResolver: _facePersonName,
-                      faceDatabase: _faceDatabase,
-                      onFaceAssignmentRejected: _rejectFaceAssignment,
-                      onFaceRejectionCleared: _clearFaceRejection,
-                      onChanged: () {
-                        setState(() {});
-                        _scheduleProjectSave();
-                      },
+                    child: Column(
+                      children: [
+                        if (_selectedFacePersonId != null && _activePersonMergeSuggestion != null)
+                          _buildActiveMergeSuggestionCard(_activePersonMergeSuggestion!),
+                        Expanded(
+                          child: MediaGrid(
+                            items: _selectedFacePersonId != null
+                                ? _buildFaceGridItems()
+                                : buildGridItems(),
+                            selectedPersonId: _selectedFacePersonId,
+                            onFaceSelected: _selectFacePerson,
+                            faceNameResolver: _facePersonName,
+                            faceDatabase: _faceDatabase,
+                            onFaceAssignmentRejected: _rejectFaceAssignment,
+                            onFaceRejectionCleared: _clearFaceRejection,
+                            onChanged: () {
+                              setState(() {});
+                              _scheduleProjectSave();
+                            },
+                          ),
+                        ),
+                      ],
                     ),
                   ),
 
@@ -1523,6 +1611,8 @@ class _HomePageState extends State<HomePage> {
 
     await Navigator.of(context).push(
       PageRouteBuilder<void>(
+        opaque: true,
+        barrierDismissible: false,
         pageBuilder: (_, __, ___) => StatisticsPage(stats: snapshot),
       ),
     );
@@ -1722,7 +1812,66 @@ class _HomePageState extends State<HomePage> {
     return snapshot;
   }
 
+  Future<Map<String, bool>?> _showAnalysisSettings() async {
+    final values = <String, bool>{
+      'timeline': true,
+      'faces': true,
+      'bursts': true,
+      'quality': true,
+      'best': true,
+    };
+    return showDialog<Map<String, bool>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => ContentDialog(
+          title: const Text('تنظیمات تحلیل'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('مشخص کنید کدام پردازش‌ها اجرا شوند:'),
+              const SizedBox(height: 8),
+              for (final option in const <(String, String)>[
+                ('timeline', 'دسته‌بندی زمانی تصاویر'),
+                ('bursts', 'تشخیص تصاویر پشت‌سرهم و مشابه زمانی'),
+                ('faces', 'تشخیص و دسته‌بندی چهره‌ها'),
+                ('quality', 'امتیازدهی کیفیت و تاری تصاویر'),
+                ('best', 'انتخاب بهترین عکس هر گروه'),
+              ])
+                Row(
+                  children: [
+                    Checkbox(
+                      checked: values[option.$1] ?? false,
+                      onChanged: (value) => setDialogState(
+                        () => values[option.$1] = value ?? false,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(option.$2)),
+                  ],
+                ),
+            ],
+          ),
+          actions: [
+            Button(
+              child: const Text('انصراف'),
+              onPressed: () => Navigator.pop(dialogContext),
+            ),
+            FilledButton(
+              child: const Text('شروع تحلیل'),
+              onPressed: values.values.any((v) => v)
+                  ? () => Navigator.pop(dialogContext, Map<String, bool>.from(values))
+                  : null,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> scanSourceFolders() async {
+    final analysisOptions = await _showAnalysisSettings();
+    if (analysisOptions == null) return;
     if (sourcePaths.isEmpty) {
       setState(() {
         mediaItems = [];
@@ -1797,7 +1946,7 @@ class _HomePageState extends State<HomePage> {
     // Analysis
     //------------------------------------------------------
 
-    await analyze();
+    await analyze(options: analysisOptions);
   }
 
   String _normalizePath(String path) {
@@ -1905,6 +2054,54 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _analyzeGroupFacesOnly(TimelineGroup group) async {
+    if (engine.isRunning || group.items.isEmpty) return;
+    setState(() => progress = const AnalysisProgress(
+      stage: AnalysisStage.faces,
+      current: 0,
+      total: 0,
+      message: 'در حال تشخیص چهره‌های این گروه...',
+    ));
+    try {
+      await engine.detectFaces(
+        sourceRoots: sourcePaths,
+        databaseDirectory: _getFaceDatabaseDirectory(),
+        onlyItems: group.items,
+        forceRescan: false,
+        callback: (p) {
+          if (mounted) setState(() => progress = p);
+        },
+      );
+      await _loadFaceDatabase();
+      await _enqueueProjectSave();
+      if (!mounted) return;
+      setState(() => progress = null);
+      await displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          title: const Text('تشخیص چهره گروه پایان یافت'),
+          content: Text('تعداد تصاویر گروه: ${group.items.length}. چهره‌های جدید به پایگاه چهره‌های کلی اضافه شدند.'),
+          severity: InfoBarSeverity.success,
+          onClose: close,
+        ),
+      );
+    } catch (e, stackTrace) {
+      debugPrint('Group face analysis error: $e');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+      setState(() => progress = null);
+      await displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          title: const Text('خطا در تشخیص چهره گروه'),
+          content: Text(e.toString()),
+          severity: InfoBarSeverity.error,
+          onClose: close,
+        ),
+      );
+    }
+  }
+
   Future<void> _analyzeFacesOnly() async {
     if (mediaItems.isEmpty || engine.isRunning) return;
 
@@ -1973,7 +2170,7 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> analyze() async {
+  Future<void> analyze({Map<String, bool>? options}) async {
     final oldGroups = groups;
 
     final metadataByDirectory = <String, TimelineGroup>{};
@@ -2001,6 +2198,11 @@ class _HomePageState extends State<HomePage> {
         faceDatabaseDirectory: _getFaceDatabaseDirectory(),
         cachedDuplicateGroups: _cachedPortableDuplicateGroups,
         cachedAnalysisPaths: _cachedPortableAnalysisPaths,
+        analyzeTimeline: options?['timeline'] ?? true,
+        analyzeFaces: options?['faces'] ?? true,
+        analyzeBursts: options?['bursts'] ?? true,
+        analyzeQuality: options?['quality'] ?? true,
+        selectBestPhotos: options?['best'] ?? true,
         onGroupDuplicates: (group, duplicates) {
           if (!mounted) return;
 
@@ -2043,7 +2245,9 @@ class _HomePageState extends State<HomePage> {
         return;
       }
 
-      final analyzedGroups = result.timelineGroups;
+      final analyzedGroups = (options?['timeline'] ?? true)
+          ? result.timelineGroups
+          : oldGroups;
 
       for (final group in analyzedGroups) {
         final directory = group.metadataDirectory;

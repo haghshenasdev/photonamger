@@ -548,19 +548,11 @@ class FaceRecognitionEngine {
     return top + (bottom - top) * fy;
   }
 
-  _DetectorInput _prepareDetectorImage(
-    img.Image source,
-    int size,
-  ) {
-    final scale = math.min(
-      size / source.width,
-      size / source.height,
-    );
+  _DetectorInput _prepareDetectorImage(img.Image source, int size) {
+    final scale = math.min(size / source.width, size / source.height);
 
-    final resizedWidth =
-        math.max(1, (source.width * scale).round());
-    final resizedHeight =
-        math.max(1, (source.height * scale).round());
+    final resizedWidth = math.max(1, (source.width * scale).round());
+    final resizedHeight = math.max(1, (source.height * scale).round());
 
     final resized = img.copyResize(
       source,
@@ -569,10 +561,7 @@ class FaceRecognitionEngine {
       interpolation: img.Interpolation.linear,
     );
 
-    final canvas = img.Image(
-      width: size,
-      height: size,
-    );
+    final canvas = img.Image(width: size, height: size);
 
     // YuNet receives a BGR tensor, matching OpenCV's FaceDetectorYN path.
     for (var y = 0; y < size; y++) {
@@ -587,13 +576,7 @@ class FaceRecognitionEngine {
     for (var y = 0; y < resizedHeight; y++) {
       for (var x = 0; x < resizedWidth; x++) {
         final pixel = resized.getPixel(x, y);
-        canvas.setPixelRgb(
-          x + padX,
-          y + padY,
-          pixel.r,
-          pixel.g,
-          pixel.b,
-        );
+        canvas.setPixelRgb(x + padX, y + padY, pixel.r, pixel.g, pixel.b);
       }
     }
 
@@ -621,7 +604,6 @@ class FaceRecognitionEngine {
       padY: padY.toDouble(),
     );
   }
-
 
   Future<List<double>> _flat(OrtValue? value) async {
     if (value == null) return const [];

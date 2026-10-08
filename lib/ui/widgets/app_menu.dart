@@ -100,7 +100,10 @@ class _AppMenuState extends State<AppMenu> {
             MenuFlyoutItem(
               leading: const Icon(FluentIcons.bar_chart_vertical),
               text: const Text('آمار جامع تصاویر'),
-              onPressed: widget.onShowStatistics,
+              onPressed: () {
+                _controller.close();
+                widget.onShowStatistics();
+              },
             ),
             const MenuFlyoutSeparator(),
             MenuFlyoutItem(

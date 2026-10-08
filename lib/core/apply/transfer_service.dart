@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:fgphoto/core/project/project_operation.dart';
 import 'package:fgphoto/core/metadata/metadata_service.dart';
@@ -380,6 +381,14 @@ class TransferService {
         if (item != null && _key(item.path) == _key(operation.sourcePath)) {
           item.updatePath(operation.destinationPath);
         }
+        if (item != null) {
+          await _copyToSecondaryFolder(
+            item: item,
+            primaryPath: operation.destinationPath,
+            groups: groups,
+            settings: settings,
+          );
+        }
         continue;
       }
 
@@ -422,6 +431,12 @@ class TransferService {
         operation.completedAt = DateTime.now();
         operation.error = null;
         item.updatePath(operation.destinationPath);
+        await _copyToSecondaryFolder(
+          item: item,
+          primaryPath: operation.destinationPath,
+          groups: groups,
+          settings: settings,
+        );
 
         current++;
 
@@ -541,6 +556,78 @@ class TransferService {
     }
 
     return true;
+  }
+
+
+  /// یک نسخه اضافی در پوشه ثانویه زیر پوشه سال/ماه می‌سازد.
+  /// فایل metadata در پوشه ثانویه مسیر نسخه اصلی و مسیر نسخه ثانویه را نگه می‌دارد.
+  Future<void> _copyToSecondaryFolder({
+    required MediaItem item,
+    required String primaryPath,
+    required List<TimelineGroup> groups,
+    required ApplySettings settings,
+  }) async {
+    final name = settings.secondaryFolderName.trim();
+    if (name.isEmpty || settings.outputFolder.trim().isEmpty) return;
+
+    TimelineGroup? owner;
+    for (final group in groups) {
+      if (group.items.any((candidate) =>
+          _key(candidate.path) == _key(primaryPath) ||
+          _key(candidate.path) == _key(item.path))) {
+        owner = group;
+        break;
+      }
+    }
+    if (owner == null) return;
+
+    final groupFolder = await _resolveGroupFolder(group: owner, settings: settings);
+    final monthFolder = settings.createGroupFolder ? groupFolder.parent : groupFolder;
+    final safeName = FolderBuilder.clean(name);
+    if (safeName.isEmpty) return;
+
+    final secondaryDirectory = Directory(p.join(monthFolder.path, safeName));
+    await secondaryDirectory.create(recursive: true);
+
+    final source = File(primaryPath);
+    if (!await source.exists()) return;
+
+    final targetPath = await _createUniqueFilePath(
+      p.join(secondaryDirectory.path, p.basename(primaryPath)),
+    );
+    final target = File(targetPath);
+    if (_key(targetPath) != _key(primaryPath)) {
+      await source.copy(targetPath);
+    }
+
+    final metadataFile = File(p.join(secondaryDirectory.path, '.archino_secondary.json'));
+    Map<String, dynamic> metadata = <String, dynamic>{
+      'version': 1,
+      'kind': 'secondary_subject_folder',
+      'primaryFolder': monthFolder.path,
+      'files': <String, dynamic>{},
+    };
+    if (await metadataFile.exists()) {
+      try {
+        final decoded = jsonDecode(await metadataFile.readAsString());
+        if (decoded is Map) metadata = Map<String, dynamic>.from(decoded);
+      } catch (_) {}
+    }
+    final files = metadata['files'] is Map
+        ? Map<String, dynamic>.from(metadata['files'] as Map)
+        : <String, dynamic>{};
+    files[p.basename(targetPath)] = {
+      'primaryPath': primaryPath,
+      'secondaryPath': targetPath,
+      'fileSize': await target.length(),
+      'copiedAt': DateTime.now().toIso8601String(),
+    };
+    metadata['files'] = files;
+    metadata['primaryFolder'] = monthFolder.path;
+    await metadataFile.writeAsString(
+      const JsonEncoder.withIndent('  ').convert(metadata),
+      flush: true,
+    );
   }
 
   Future<void> _transferFile({

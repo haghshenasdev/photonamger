@@ -13,18 +13,39 @@ class StatisticsCharts extends StatelessWidget {
     this.compact = false,
   });
 
+  String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes بایت';
+    const units = ['KB', 'MB', 'GB', 'TB'];
+    var value = bytes.toDouble();
+    var unit = -1;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit++;
+    }
+    return '${value.toStringAsFixed(value >= 10 ? 1 : 2)} ${units[unit]}';
+  }
+
   @override
   Widget build(BuildContext context) {
     if (compact) {
+      final ratio = stats.totalBytes <= 0
+          ? 0.0
+          : (stats.selectedBytes / stats.totalBytes).clamp(0.0, 1.0);
       return _ChartPanel(
-        title: 'توزیع فایل‌ها',
+        title: 'حجم کل در برابر حجم منتخب',
         height: 175,
-        child: _BarChart(
-          values: stats.extensions.isNotEmpty
-              ? stats.extensions
-              : stats.filesByYear.map(
-                  (key, value) => MapEntry(key.toString(), value),
-                ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text('حجم کل: ${_formatBytes(stats.totalBytes)}'),
+            const SizedBox(height: 6),
+            Text('حجم منتخب: ${_formatBytes(stats.selectedBytes)}'),
+            const SizedBox(height: 10),
+            ProgressBar(value: ratio * 100),
+            const SizedBox(height: 6),
+            Text('${(ratio * 100).toStringAsFixed(1)}٪ از حجم کل انتخاب شده است'),
+          ],
         ),
       );
     }

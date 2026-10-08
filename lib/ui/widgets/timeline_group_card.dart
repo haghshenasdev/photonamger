@@ -66,6 +66,7 @@ class TimelineGroupCard extends StatefulWidget {
   final ValueChanged<TimelineGroup> onGroupUpdated;
   final VoidCallback onReprocessRequested;
   final Future<void> Function(TimelineGroup group) onAnalyzeGroupRequested;
+  final Future<void> Function(TimelineGroup group)? onAnalyzeGroupFacesRequested;
   final void Function(List<TimelineGroup> groups) onGroupsMerged;
   final VoidCallback onResetTimeline;
   final VoidCallback onSuggestCategories;
@@ -79,6 +80,7 @@ class TimelineGroupCard extends StatefulWidget {
     required this.onGroupUpdated,
     required this.onReprocessRequested,
     required this.onAnalyzeGroupRequested,
+    this.onAnalyzeGroupFacesRequested,
     required this.onGroupsMerged,
     required this.onResetTimeline,
     required this.onSuggestCategories,
@@ -92,6 +94,7 @@ class TimelineGroupCard extends StatefulWidget {
 class _TimelineGroupCardState extends State<TimelineGroupCard> {
   String _searchQuery = '';
   String? _selectedCategory;
+  bool _showYearMonthHeaders = true;
 
   final TextEditingController _searchController = TextEditingController();
 
@@ -487,11 +490,22 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
   List<_TimelineListEntry> _timelineEntries(List<TimelineGroup> filtered) {
     final grouped = <int, Map<int, List<int>>>{};
 
+    if (!_showYearMonthHeaders) {
+      final indices = List<int>.generate(filtered.length, (i) => i);
+      indices.sort((a, b) {
+        final da = filtered[a].metadata?.groupDate ?? filtered[a].start;
+        final db = filtered[b].metadata?.groupDate ?? filtered[b].start;
+        return db.compareTo(da);
+      });
+      return indices.map(_TimelineListEntry.group).toList();
+    }
+
     for (int index = 0; index < filtered.length; index++) {
       final date = filtered[index].metadata?.groupDate ?? filtered[index].start;
+      final jalali = Jalali.fromDateTime(date);
       grouped
-          .putIfAbsent(date.year, () => <int, List<int>>{})
-          .putIfAbsent(date.month, () => <int>[])
+          .putIfAbsent(jalali.year, () => <int, List<int>>{})
+          .putIfAbsent(jalali.month, () => <int>[])
           .add(index);
     }
 
@@ -733,6 +747,25 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                     ),
                   ),
                 ],
+              ],
+            ),
+          ),
+
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+            child: Row(
+              children: [
+                const Icon(FluentIcons.calendar, size: 14),
+                const SizedBox(width: 6),
+                const Expanded(child: Text('گروه‌بندی زمانی شمسی')),
+                ToggleSwitch(
+                  checked: _showYearMonthHeaders,
+                  onChanged: (value) => setState(() {
+                    _showYearMonthHeaders = value;
+                    _collapsedYears.clear();
+                    _collapsedMonths.clear();
+                  }),
+                ),
               ],
             ),
           ),
@@ -1144,6 +1177,15 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                                           );
                                                     },
                                                   ),
+                                                  if (widget.onAnalyzeGroupFacesRequested != null)
+                                                    MenuFlyoutItem(
+                                                      leading: const Icon(FluentIcons.contact),
+                                                      text: const Text('تشخیص چهره فقط در این پوشه'),
+                                                      onPressed: () async {
+                                                        widget.onGroupSelected(group);
+                                                        await widget.onAnalyzeGroupFacesRequested!(group);
+                                                      },
+                                                    ),
                                                   MenuFlyoutItem(
                                                     leading: const Icon(
                                                       FluentIcons.info,

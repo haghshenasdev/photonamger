@@ -26,6 +26,7 @@ class TransferDialog extends StatefulWidget {
 
 class _TransferDialogState extends State<TransferDialog> {
   String outputFolder = "";
+  final TextEditingController _secondaryController = TextEditingController();
 
   bool createYearFolder = true;
 
@@ -63,6 +64,12 @@ class _TransferDialogState extends State<TransferDialog> {
   }
 
   @override
+  void dispose() {
+    _secondaryController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return ContentDialog(
       constraints: const BoxConstraints(maxWidth: 650),
@@ -97,6 +104,13 @@ class _TransferDialogState extends State<TransferDialog> {
             ],
           ),
 
+          const SizedBox(height: 8),
+          const Text('پوشه ثانویه (اختیاری)', style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          TextBox(
+            controller: _secondaryController,
+            placeholder: 'مثلاً سوژه‌ها — برای کپی اضافی داخل پوشه ماه',
+          ),
           const SizedBox(height: 8),
 
           InfoBar(
@@ -261,6 +275,7 @@ class _TransferDialogState extends State<TransferDialog> {
                       createGroupFolder: createGroupFolder,
                       moveFiles: outputFolder.isEmpty ? true : moveFiles,
                       appendDateToGroupName: appendDateToGroupName,
+                      secondaryFolderName: _secondaryController.text.trim(),
                     ),
                   );
                 },

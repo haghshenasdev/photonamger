@@ -1,5 +1,8 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:convert';
+import 'package:path/path.dart' as p;
+import 'package:fgphoto/core/metadata/image_metadata_service.dart';
 
 import 'package:fgphoto/core/file_explorer_service.dart';
 import 'package:fgphoto/core/analysis/face_database.dart';
@@ -180,6 +183,102 @@ class _MediaTileState extends State<_MediaTile> {
     }
   }
 
+  Future<void> _addToSubjectFolder() async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => ContentDialog(
+        title: const Text('افزودن به پوشه سوژه‌ها'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('نام پوشه سوژه را وارد کنید. تصویر اصلی جابه‌جا نمی‌شود.'),
+          const SizedBox(height: 8),
+          TextBox(controller: controller, placeholder: 'مثلاً جلسه اداری'),
+        ]),
+        actions: [
+          Button(child: const Text('انصراف'), onPressed: () => Navigator.pop(dialogContext)),
+          Button(child: const Text('کپی تصویر'), onPressed: () => Navigator.pop(dialogContext, controller.text.trim())),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (name == null || name.trim().isEmpty || !mounted) return;
+    try {
+      final source = File(widget.item.path);
+      if (!await source.exists()) return;
+      final monthDirectory = source.parent.path;
+      final destinationDir = Directory(p.join(monthDirectory, 'سوژه‌ها', name.trim()));
+      await destinationDir.create(recursive: true);
+      var destinationPath = p.join(destinationDir.path, p.basename(source.path));
+      var i = 1;
+      while (await File(destinationPath).exists()) {
+        final ext = p.extension(source.path);
+        final stem = p.basenameWithoutExtension(source.path);
+        destinationPath = p.join(destinationDir.path, '$stem ($i)$ext');
+        i++;
+      }
+      await source.copy(destinationPath);
+      final marker = File(p.join(destinationDir.path, '.archino_secondary.json'));
+      Map<String, dynamic> manifest = {'type': 'archino-secondary-folder', 'subject': name.trim(), 'items': <dynamic>[]};
+      if (await marker.exists()) {
+        try { manifest = Map<String, dynamic>.from(jsonDecode(await marker.readAsString()) as Map); } catch (_) {}
+      }
+      final entries = (manifest['items'] as List?)?.cast<dynamic>() ?? <dynamic>[];
+      entries.add({'originalPath': p.normalize(source.path), 'copyPath': p.normalize(destinationPath), 'addedAt': DateTime.now().toIso8601String()});
+      manifest['items'] = entries;
+      await marker.writeAsString(const JsonEncoder.withIndent('  ').convert(manifest), flush: true);
+      // Preserve tags/user metadata alongside the copied image.
+      final imageMeta = await ImageMetadataService.read(source.path);
+      if ((imageMeta['tags'] as List?)?.isNotEmpty == true || (imageMeta['fields'] as Map?)?.isNotEmpty == true) {
+        await ImageMetadataService.write(destinationPath, Map<String, dynamic>.from(imageMeta));
+      }
+      if (mounted) {
+        await displayInfoBar(context, builder: (context, close) => InfoBar(
+          title: const Text('کپی شد'),
+          content: Text('تصویر در پوشه سوژه‌ها/$name کپی شد.'),
+          severity: InfoBarSeverity.success,
+        ));
+      }
+    } catch (e) {
+      if (mounted) {
+        await displayInfoBar(context, builder: (context, close) => InfoBar(
+          title: const Text('خطا در کپی تصویر'),
+          content: Text('$e'),
+          severity: InfoBarSeverity.error,
+        ));
+      }
+    }
+  }
+
+  Future<void> _editImageTags() async {
+    final existing = await ImageMetadataService.tags(widget.item.path);
+    final controller = TextEditingController(text: existing.join(', '));
+    final value = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => ContentDialog(
+        title: const Text('تگ‌های تصویر'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('تگ‌ها را با ویرگول جدا کنید. این تگ‌ها در فایل متادیتای جانبی ذخیره می‌شوند.'),
+          const SizedBox(height: 8),
+          TextBox(controller: controller, placeholder: 'خانوادگی، سفر، جلسه'),
+        ]),
+        actions: [
+          Button(child: const Text('انصراف'), onPressed: () => Navigator.pop(dialogContext)),
+          Button(child: const Text('ذخیره'), onPressed: () => Navigator.pop(dialogContext, controller.text)),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (value == null) return;
+    await ImageMetadataService.saveTags(widget.item.path, value.split(RegExp(r'[,،]')));
+    if (mounted) {
+      await displayInfoBar(context, builder: (context, close) => InfoBar(
+        title: const Text('تگ‌ها ذخیره شدند'),
+        content: const Text('تگ‌ها در فایل .archino-image.json کنار تصویر ذخیره شدند.'),
+        severity: InfoBarSeverity.success,
+      ));
+    }
+  }
+
   Future<void> _showContextMenu(Offset position) async {
     final faceDatabase = widget.faceDatabase;
 
@@ -298,6 +397,23 @@ class _MediaTileState extends State<_MediaTile> {
     }
 
     menuItems.addAll([
+      MenuFlyoutItem(
+        leading: const Icon(FluentIcons.folder),
+        text: const Text('افزودن به پوشه سوژه‌ها…'),
+        onPressed: () async {
+          _flyoutController.close();
+          await _addToSubjectFolder();
+        },
+      ),
+      MenuFlyoutItem(
+        leading: const Icon(FluentIcons.tag),
+        text: const Text('مدیریت تگ‌های تصویر…'),
+        onPressed: () async {
+          _flyoutController.close();
+          await _editImageTags();
+        },
+      ),
+      const MenuFlyoutSeparator(),
       MenuFlyoutItem(
         leading: const Icon(FluentIcons.open_folder_horizontal),
         text: const Text('نمایش فایل در File Explorer'),

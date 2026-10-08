@@ -6,6 +6,7 @@ class ApplySettings {
         'createGroupFolder': createGroupFolder,
         'moveFiles': moveFiles,
         'appendDateToGroupName': appendDateToGroupName,
+        'secondaryFolderName': secondaryFolderName,
       };
 
   factory ApplySettings.fromJson(Map<String, dynamic> json) {
@@ -16,11 +17,15 @@ class ApplySettings {
       createGroupFolder: json['createGroupFolder'] != false,
       moveFiles: json['moveFiles'] != false,
       appendDateToGroupName: json['appendDateToGroupName'] != false,
+      secondaryFolderName: json['secondaryFolderName']?.toString() ?? '',
     );
   }
 
   /// مسیر خروجی
   final String outputFolder;
+
+  /// پوشه کپی ثانویه داخل پوشه ماه؛ خالی یعنی غیرفعال.
+  final String secondaryFolderName;
 
   final bool appendDateToGroupName;
 
@@ -44,6 +49,7 @@ class ApplySettings {
     required this.createGroupFolder,
     required this.moveFiles,
     required this.appendDateToGroupName,
+    this.secondaryFolderName = '',
   });
 
   ApplySettings copyWith({
@@ -53,6 +59,7 @@ class ApplySettings {
     bool? createGroupFolder,
     bool? moveFiles,
     bool? appendDateToGroupName,
+    String? secondaryFolderName,
   }) {
     return ApplySettings(
       outputFolder: outputFolder ?? this.outputFolder,
@@ -62,6 +69,7 @@ class ApplySettings {
       moveFiles: moveFiles ?? this.moveFiles,
       appendDateToGroupName:
           appendDateToGroupName ?? this.appendDateToGroupName,
+      secondaryFolderName: secondaryFolderName ?? this.secondaryFolderName,
     );
   }
 }

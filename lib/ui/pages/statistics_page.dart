@@ -26,7 +26,9 @@ class StatisticsPage extends StatelessWidget {
         title: const Text('آمار جامع آرشینو'),
         leading: IconButton(
           icon: const Icon(FluentIcons.back),
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () {
+            Navigator.of(context).pop();
+          },
         ),
       ),
       content: Padding(
@@ -47,7 +49,10 @@ class StatisticsPage extends StatelessWidget {
                   _MetricCard('تعداد چهره‌ها', '${stats.faces}'),
                   _MetricCard('گروه‌های تکراری', '${stats.duplicateGroups}'),
                   _MetricCard('فایل‌های تکراری', '${stats.duplicateFiles}'),
-                  _MetricCard('میانگین کیفیت', '${stats.averageQuality.toStringAsFixed(1)}'),
+                  _MetricCard(
+                    'میانگین کیفیت',
+                    '${stats.averageQuality.toStringAsFixed(1)}',
+                  ),
                   _MetricCard('حجم کل', _bytes(stats.totalBytes)),
                   _MetricCard('حجم منتخب', _bytes(stats.selectedBytes)),
                 ],
@@ -79,16 +84,13 @@ class _MetricCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey[50]),
+          border: Border.all(color: const Color.fromARGB(255, 255, 255, 255)),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
           children: [
             Expanded(child: Text(title)),
-            Text(
-              value,
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
+            Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
           ],
         ),
       ),

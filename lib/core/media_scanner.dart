@@ -90,6 +90,11 @@ class MediaScanner {
         followLinks: false,
       )) {
         if (entity is Directory) {
+          // پوشه‌های کپی ثانویه فقط برای گردآوری سوژه‌اند؛ از اسکن و
+          // تشخیص چهره مجدد آن‌ها جلوگیری می‌کنیم.
+          if (await File('${entity.path}${Platform.pathSeparator}.archino_secondary.json').exists()) {
+            continue;
+          }
           await _scanDirectory(entity, result, scannedPaths);
         }
       }

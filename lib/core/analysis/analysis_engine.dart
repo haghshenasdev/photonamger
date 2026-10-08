@@ -141,8 +141,10 @@ class AnalysisEngine {
     required String databaseDirectory,
     AnalysisCallback? callback,
     bool forceRescan = false,
+    List<MediaItem>? onlyItems,
   }) async {
-    if (mediaItems.isEmpty) return;
+    final itemsToAnalyze = onlyItems ?? mediaItems;
+    if (itemsToAnalyze.isEmpty) return;
 
     final ownsRunLock = !_running;
     if (ownsRunLock) _running = true;
@@ -151,15 +153,15 @@ class AnalysisEngine {
       final pending = await faceDatabaseService.applyCachedFaces(
         databaseDirectory: databaseDirectory,
         sourceRoots: sourceRoots,
-        items: mediaItems,
+        items: itemsToAnalyze,
         forceRescan: forceRescan,
       );
 
       if (pending.isEmpty) {
         _updateProgress(
           AnalysisStage.faces,
-          mediaItems.length,
-          mediaItems.length,
+          itemsToAnalyze.length,
+          itemsToAnalyze.length,
           'اطلاعات چهره از حافظه محلی بارگذاری شد.',
           callback,
         );
@@ -261,6 +263,11 @@ class AnalysisEngine {
     onGroupDuplicates,
     List<DuplicateGroup> cachedDuplicateGroups = const [],
     Set<String> cachedAnalysisPaths = const <String>{},
+    bool analyzeTimeline = true,
+    bool analyzeFaces = true,
+    bool analyzeBursts = true,
+    bool analyzeQuality = true,
+    bool selectBestPhotos = true,
   }) async {
     duplicateGroups
       ..clear()
@@ -385,6 +392,11 @@ class AnalysisEngine {
     String? faceDatabaseDirectory,
     List<DuplicateGroup> cachedDuplicateGroups = const [],
     Set<String> cachedAnalysisPaths = const <String>{},
+    bool analyzeTimeline = true,
+    bool analyzeFaces = true,
+    bool analyzeBursts = true,
+    bool analyzeQuality = true,
+    bool selectBestPhotos = true,
   }) async {
     if (_running) {
       throw Exception('Analysis already running.');
@@ -397,37 +409,39 @@ class AnalysisEngine {
 
       mediaItems = List<MediaItem>.from(items);
 
-      timelineGroups.clear();
+      if (analyzeTimeline) timelineGroups.clear();
+      if (analyzeBursts) duplicateGroups.clear();
 
-      duplicateGroups.clear();
+      if (analyzeTimeline) {
+        // -----------------------------------------------------------------------
+        // TIMELINE
+        // -----------------------------------------------------------------------
 
-      // -----------------------------------------------------------------------
-      // TIMELINE
-      // -----------------------------------------------------------------------
-
-      _updateProgress(
-        AnalysisStage.timeline,
-        0,
-        mediaItems.length,
-        'در حال دسته بندی زمانی...',
-        onProgress,
-      );
-
-      await _buildTimeline(onProgress);
-
-      if (controller.isCancelled) {
-        return AnalysisResult(
-          cancelled: true,
-          timelineGroups: timelineGroups,
-          duplicateGroups: duplicateGroups,
+        _updateProgress(
+          AnalysisStage.timeline,
+          0,
+          mediaItems.length,
+          'در حال دسته بندی زمانی...',
+          onProgress,
         );
+
+        await _buildTimeline(onProgress);
+
+        if (controller.isCancelled) {
+          return AnalysisResult(
+            cancelled: true,
+            timelineGroups: timelineGroups,
+            duplicateGroups: duplicateGroups,
+          );
+        }
+
       }
 
       // -----------------------------------------------------------------------
       // FACE DETECTION / RECOGNITION
       // -----------------------------------------------------------------------
 
-      if (sourceRootsForFaces != null && faceDatabaseDirectory != null) {
+      if (analyzeFaces && sourceRootsForFaces != null && faceDatabaseDirectory != null) {
         await detectFaces(
           sourceRoots: sourceRootsForFaces!,
           databaseDirectory: faceDatabaseDirectory!,
@@ -443,65 +457,74 @@ class AnalysisEngine {
         }
       }
 
-      // -----------------------------------------------------------------------
-      // TEMPORAL BURST DETECTION
-      // -----------------------------------------------------------------------
-      //
-      // مهم:
-      // اینجا دیگر DuplicateDetector و pHash اجرا نمی‌شوند.
-      //
-      // به جای آن فقط زمان عکس‌ها بررسی می‌شود.
-      //
+      if (analyzeBursts) {
+        // -----------------------------------------------------------------------
+        // TEMPORAL BURST DETECTION
+        // -----------------------------------------------------------------------
+        //
+        // مهم:
+        // اینجا دیگر DuplicateDetector و pHash اجرا نمی‌شوند.
+        //
+        // به جای آن فقط زمان عکس‌ها بررسی می‌شود.
+        //
 
-      _updateProgress(
-        AnalysisStage.duplicate,
-        0,
-        mediaItems.length,
-        'در حال تشخیص عکس‌های پشت‌سرهم...',
-        onProgress,
-      );
-
-      await _findTemporalBursts(
-        onProgress,
-        onGroupDuplicates: onGroupDuplicates,
-        cachedDuplicateGroups: cachedDuplicateGroups,
-        cachedAnalysisPaths: cachedAnalysisPaths,
-      );
-
-      if (controller.isCancelled) {
-        return AnalysisResult(
-          cancelled: true,
-          timelineGroups: timelineGroups,
-          duplicateGroups: duplicateGroups,
+        _updateProgress(
+          AnalysisStage.duplicate,
+          0,
+          mediaItems.length,
+          'در حال تشخیص عکس‌های پشت‌سرهم...',
+          onProgress,
         );
+
+        await _findTemporalBursts(
+          onProgress,
+          onGroupDuplicates: onGroupDuplicates,
+          cachedDuplicateGroups: cachedDuplicateGroups,
+          cachedAnalysisPaths: cachedAnalysisPaths,
+        );
+
+        if (controller.isCancelled) {
+          return AnalysisResult(
+            cancelled: true,
+            timelineGroups: timelineGroups,
+            duplicateGroups: duplicateGroups,
+          );
+        }
+
       }
 
-      // -----------------------------------------------------------------------
-      // QUALITY
-      // -----------------------------------------------------------------------
+      if (analyzeQuality) {
+        // -----------------------------------------------------------------------
+        // QUALITY
+        // -----------------------------------------------------------------------
 
-      await _scorePhotos(onProgress);
+        await _scorePhotos(onProgress);
 
-      if (controller.isCancelled) {
-        return AnalysisResult(
-          cancelled: true,
-          timelineGroups: timelineGroups,
-          duplicateGroups: duplicateGroups,
-        );
+        if (controller.isCancelled) {
+          return AnalysisResult(
+            cancelled: true,
+            timelineGroups: timelineGroups,
+            duplicateGroups: duplicateGroups,
+          );
+        }
+
       }
 
-      // -----------------------------------------------------------------------
-      // BEST PHOTO
-      // -----------------------------------------------------------------------
+      if (selectBestPhotos) {
+        // -----------------------------------------------------------------------
+        // BEST PHOTO
+        // -----------------------------------------------------------------------
 
-      await _selectBestPhotos(onProgress);
+        await _selectBestPhotos(onProgress);
 
-      if (controller.isCancelled) {
-        return AnalysisResult(
-          cancelled: true,
-          timelineGroups: timelineGroups,
-          duplicateGroups: duplicateGroups,
-        );
+        if (controller.isCancelled) {
+          return AnalysisResult(
+            cancelled: true,
+            timelineGroups: timelineGroups,
+            duplicateGroups: duplicateGroups,
+          );
+        }
+
       }
 
       // -----------------------------------------------------------------------

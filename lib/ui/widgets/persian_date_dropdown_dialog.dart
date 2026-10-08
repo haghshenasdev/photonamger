@@ -25,6 +25,7 @@ class _PersianDateDropdownDialogState
   late int _year;
   late int _month;
   late int _day;
+  late final TextEditingController _yearController;
 
   static const _monthNames = <String>[
     'فروردین',
@@ -48,6 +49,7 @@ class _PersianDateDropdownDialogState
     _year = j.year.clamp(widget.firstYear, widget.lastYear).toInt();
     _month = j.month.clamp(1, 12).toInt();
     _day = j.day.clamp(1, _daysInMonth(_year, _month)).toInt();
+    _yearController = TextEditingController(text: _year.toString());
   }
 
   int _daysInMonth(int year, int month) {
@@ -57,6 +59,12 @@ class _PersianDateDropdownDialogState
   void _normalizeDay() {
     final maxDay = _daysInMonth(_year, _month);
     if (_day > maxDay) _day = maxDay;
+  }
+
+  @override
+  void dispose() {
+    _yearController.dispose();
+    super.dispose();
   }
 
   @override
@@ -70,17 +78,15 @@ class _PersianDateDropdownDialogState
         child: Row(
           children: [
             Expanded(
-              child: ComboBox<int>(
-                isExpanded: true,
-                value: _year,
-                items: [
-                  for (int y = widget.firstYear; y <= widget.lastYear; y++)
-                    ComboBoxItem(value: y, child: Text('$y')),
-                ],
-                onChanged: (value) {
-                  if (value == null) return;
+              child: TextBox(
+                controller: _yearController,
+                placeholder: 'سال',
+                keyboardType: TextInputType.number,
+                onChanged: (text) {
+                  final year = int.tryParse(text.trim());
+                  if (year == null || year < 1 || year > 9999) return;
                   setState(() {
-                    _year = value;
+                    _year = year;
                     _normalizeDay();
                   });
                 },
