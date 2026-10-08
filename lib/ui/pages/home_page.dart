@@ -850,6 +850,77 @@ class _HomePageState extends State<HomePage> {
         _rightPanelTab = 1;
       }
     });
+
+    // Recalculate merge candidates off the immediate UI interaction so that
+    // selecting a person also refreshes suggestions against the latest database.
+    if (personId != null) {
+      Future<void>(() async {
+        try {
+          await Future<void>.delayed(const Duration(milliseconds: 40));
+          final service = const FaceDatabaseService();
+          final fresh = service.findMergeSuggestions(_faceDatabase);
+          if (!mounted || _selectedFacePersonId != personId) return;
+          setState(() {
+            _faceMergeSuggestions = fresh;
+            _dismissedFaceMergeSuggestions.removeWhere((key) {
+              final parts = key.split('|');
+              return parts.length != 2 ||
+                  !_faceDatabase.persons.any((p) => p.id == parts[0]) ||
+                  !_faceDatabase.persons.any((p) => p.id == parts[1]);
+            });
+          });
+        } catch (e, st) {
+          debugPrint('Background merge-suggestion refresh failed: $e');
+          debugPrintStack(stackTrace: st);
+        }
+      });
+    }
+  }
+
+  String? _faceImagePathForPerson(FacePerson person) {
+    StoredFace? face;
+    for (final candidate in _faceDatabase.faces) {
+      if (candidate.personId == person.id) {
+        face = candidate;
+        break;
+      }
+    }
+    final relative = person.coverRelativePath ?? face?.relativePath;
+    final rootKey = person.coverRootKey ?? face?.rootKey;
+    if (relative == null || rootKey == null) return null;
+    for (final root in sourcePaths) {
+      if (p.basename(p.normalize(root)).toLowerCase() == rootKey.toLowerCase()) {
+        final candidate = p.normalize(p.join(root, relative));
+        if (File(candidate).existsSync()) return candidate;
+      }
+    }
+    // A stored relative path may be relative to a root with a different name.
+    for (final root in sourcePaths) {
+      final candidate = p.normalize(p.join(root, relative));
+      if (File(candidate).existsSync()) return candidate;
+    }
+    return null;
+  }
+
+  Widget _personFacePreview(FacePerson person) {
+    final path = _faceImagePathForPerson(person);
+    return Container(
+      width: 94,
+      height: 94,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        color: FluentTheme.of(context).resources.subtleFillColorSecondary,
+      ),
+      child: path == null
+          ? const Icon(FluentIcons.contact, size: 36)
+          : Image.file(
+              File(path),
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stack) =>
+                  const Icon(FluentIcons.contact, size: 36),
+            ),
+    );
   }
 
   String _mergeSuggestionKey(FaceMergeSuggestion suggestion) {
@@ -898,33 +969,54 @@ class _HomePageState extends State<HomePage> {
         : suggestion.firstPersonId;
     final other = _facePersonById(otherId);
     if (selected == null || other == null) return const SizedBox.shrink();
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Card(
-        padding: const EdgeInsets.all(10),
-        child: Row(
-        children: [
-          const Icon(FluentIcons.lightbulb, size: 18),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'پیشنهاد ادغام: «${selected.name}» با «${other.name}» '
-              '(${(suggestion.similarity * 100).round()}٪ شباهت). همین شخص است؟',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Button(
-            onPressed: () => _handleMergeSuggestion(false),
-            child: const Text('خیر، بعدی'),
-          ),
-          const SizedBox(width: 6),
-          FilledButton(
-            onPressed: () => _handleMergeSuggestion(true),
-            child: const Text('بله، ادغام'),
-          ),
-        ],
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              const Icon(FluentIcons.lightbulb, size: 18),
+              const SizedBox(width: 8),
+              Expanded(child: Text(
+                'پیشنهاد ادغام (${(suggestion.similarity * 100).round()}٪ شباهت) — آیا هر دو تصویر متعلق به یک شخص هستند؟',
+                style: FluentTheme.of(context).typography.bodyStrong,
+              )),
+            ]),
+            const SizedBox(height: 10),
+            Row(children: [
+              Expanded(child: Column(children: [
+                _personFacePreview(selected),
+                const SizedBox(height: 5),
+                Text(selected.name, textAlign: TextAlign.center,
+                    maxLines: 2, overflow: TextOverflow.ellipsis),
+              ])),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+                child: Icon(FluentIcons.arrow_tall_down_left, size: 22),
+              ),
+              Expanded(child: Column(children: [
+                _personFacePreview(other),
+                const SizedBox(height: 5),
+                Text(other.name, textAlign: TextAlign.center,
+                    maxLines: 2, overflow: TextOverflow.ellipsis),
+              ])),
+            ]),
+            const SizedBox(height: 10),
+            Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+              Button(
+                onPressed: () => _handleMergeSuggestion(false),
+                child: const Text('خیر، پیشنهاد بعدی'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: () => _handleMergeSuggestion(true),
+                child: const Text('بله، ادغام'),
+              ),
+            ]),
+          ],
         ),
       ),
     );
