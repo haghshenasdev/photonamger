@@ -678,6 +678,7 @@ class _HomePageState extends State<HomePage> {
         secondaryPersonId: secondaryId,
         preferredName: chosenName,
         sourceRoots: sourcePaths,
+        currentDatabase: _faceDatabase,
       );
 
       // Verify the persisted result before changing in-memory MediaItems or

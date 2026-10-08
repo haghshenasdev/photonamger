@@ -1533,12 +1533,32 @@ class FaceDatabaseService {
     required String secondaryPersonId,
     String? preferredName,
     List<String> sourceRoots = const <String>[],
+    FaceDatabase? currentDatabase,
   }) async {
     if (primaryPersonId == secondaryPersonId) {
       return;
     }
 
-    final db = await load(databaseDirectory);
+    var db = await load(databaseDirectory);
+
+    // The UI may have the latest database embedded in the open project while
+    // the working sidecar is stale (for example after recovery or switching
+    // projects). If the requested IDs are missing on disk but both exist in
+    // the current project snapshot, use that snapshot as the merge source.
+    bool containsBoth(FaceDatabase candidate) {
+      final ids = candidate.persons.map((person) => person.id).toSet();
+      return ids.contains(primaryPersonId) && ids.contains(secondaryPersonId);
+    }
+
+    if (!containsBoth(db) &&
+        currentDatabase != null &&
+        containsBoth(currentDatabase)) {
+      db = FaceDatabase.fromJson(currentDatabase.toJson());
+      stderr.writeln(
+        'Face merge: using current in-memory project database because the '
+        'working sidecar was stale (directory=$databaseDirectory).',
+      );
+    }
 
     FacePerson? primary;
     FacePerson? secondary;
