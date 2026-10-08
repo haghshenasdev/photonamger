@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
+import 'package:image/image.dart' as img;
 
 import 'package:fgphoto/core/analysis/analysis_progress.dart';
 import 'package:fgphoto/core/analysis/analysis_stage.dart';
@@ -111,6 +112,12 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     _saveTimer?.cancel();
+    // Persist the latest in-memory state even if the debounce timer had not fired yet.
+    if (_projectPath != null) {
+      unawaited(_enqueueProjectSave().catchError((Object e) {
+        debugPrint('Final project save error: $e');
+      }));
+    }
     unawaited(engine.faceRecognitionEngine.dispose());
     super.dispose();
   }
@@ -160,7 +167,10 @@ class _HomePageState extends State<HomePage> {
     final directory = _getFaceDatabaseDirectory();
     const service = FaceDatabaseService();
 
-    final db = await service.load(directory);
+    final embeddedFaces = _project?.faceDatabase;
+    final db = embeddedFaces != null
+        ? FaceDatabase.fromJson(Map<String, dynamic>.from(embeddedFaces))
+        : await service.load(directory);
 
     if (!mounted) return;
 
@@ -329,7 +339,10 @@ class _HomePageState extends State<HomePage> {
 
     final directory = _getFaceDatabaseDirectory();
     const service = CategoryLearningService();
-    final model = await service.load(directory);
+    final embeddedRules = _project?.categoryLearning;
+    final model = embeddedRules != null
+        ? CategoryLearningModel.fromJson(Map<String, dynamic>.from(embeddedRules))
+        : await service.load(directory);
 
     final merged = service.merge(model, service.rebuild(groups));
 
@@ -914,13 +927,70 @@ class _HomePageState extends State<HomePage> {
       ),
       child: path == null
           ? const Icon(FluentIcons.contact, size: 36)
-          : Image.file(
-              File(path),
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stack) =>
-                  const Icon(FluentIcons.contact, size: 36),
+          : FutureBuilder<File?>(
+              future: _faceImageFileForPerson(person),
+              builder: (context, snapshot) {
+                final file = snapshot.data;
+                if (file == null) {
+                  return Image.file(
+                    File(path),
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stack) =>
+                        const Icon(FluentIcons.contact, size: 36),
+                  );
+                }
+                return Image.file(
+                  file,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stack) =>
+                      const Icon(FluentIcons.contact, size: 36),
+                );
+              },
             ),
     );
+  }
+
+  final Map<String, Future<File?>> _facePreviewFiles = <String, Future<File?>>{};
+
+  Future<File?> _faceImageFileForPerson(FacePerson person) {
+    return _facePreviewFiles.putIfAbsent(person.id, () => _createFacePreviewFile(person));
+  }
+
+  Future<File?> _createFacePreviewFile(FacePerson person) async {
+    StoredFace? stored;
+    final path = _faceImagePathForPerson(person);
+    for (final face in _faceDatabase.faces) {
+      if (face.personId != person.id) continue;
+      final resolved = const FaceDatabaseService().resolveStoredPath(face, sourcePaths);
+      if (path != null && resolved != null && _normalizePath(resolved) == _normalizePath(path)) {
+        stored = face;
+        break;
+      }
+      stored ??= face;
+    }
+    if (path == null || stored == null) return null;
+    try {
+      final bytes = await File(path).readAsBytes();
+      final decoded = img.decodeImage(bytes);
+      if (decoded == null) return null;
+      final scale = (decoded.width > decoded.height
+              ? decoded.width
+              : decoded.height) > 1600
+          ? ((decoded.width > decoded.height ? decoded.width : decoded.height) / 1600.0)
+          : 1.0;
+      final pad = (stored.width > stored.height ? stored.width : stored.height) * 0.35;
+      final left = (stored.left * scale - pad).round().clamp(0, decoded.width - 1);
+      final top = (stored.top * scale - pad).round().clamp(0, decoded.height - 1);
+      final right = ((stored.left + stored.width) * scale + pad).round().clamp(left + 1, decoded.width);
+      final bottom = ((stored.top + stored.height) * scale + pad).round().clamp(top + 1, decoded.height);
+      final crop = img.copyCrop(decoded, x: left, y: top, width: right-left, height: bottom-top);
+      final tempDir = await Directory.systemTemp.createTemp('archino_face_preview_');
+      final out = File(p.join(tempDir.path, '${person.id.hashCode}.jpg'));
+      await out.writeAsBytes(img.encodeJpg(img.copyResize(crop, width: 240, height: 240), quality: 85), flush: true);
+      return out;
+    } catch (_) {
+      return null;
+    }
   }
 
   String _mergeSuggestionKey(FaceMergeSuggestion suggestion) {
@@ -2383,6 +2453,8 @@ class _HomePageState extends State<HomePage> {
       project.mediaItems = mediaItems;
       project.groups = groups;
       project.duplicateGroups = duplicateGroups;
+    project.faceDatabase = _faceDatabase.toJson();
+    project.categoryLearning = _categoryLearningModel.toJson();
       project.analysisCompleted = true;
 
       await _enqueueProjectSave();
@@ -2598,6 +2670,8 @@ class _HomePageState extends State<HomePage> {
     project.mediaItems = mediaItems;
     project.groups = groups;
     project.duplicateGroups = duplicateGroups;
+    project.faceDatabase = _faceDatabase.toJson();
+    project.categoryLearning = _categoryLearningModel.toJson();
   }
 
   Future<void> _saveCurrentProjectNow() async {
@@ -2609,6 +2683,23 @@ class _HomePageState extends State<HomePage> {
       path: _projectPath!,
       project: _ensureProject(),
     );
+
+    // The project file is now the authoritative store. Remove legacy sidecars
+    // only after a successful atomic project save.
+    final projectDirectory = File(_projectPath!).parent.path;
+    for (final legacyName in <String>[
+      FaceDatabaseService.fileName,
+      CategoryLearningService.fileName,
+    ]) {
+      final legacy = File(p.join(projectDirectory, legacyName));
+      if (await legacy.exists()) {
+        try {
+          await legacy.delete();
+        } catch (e) {
+          debugPrint('Could not remove legacy sidecar ${legacy.path}: $e');
+        }
+      }
+    }
 
     await ProjectRepository.rememberProjectPath(_projectPath!);
   }
@@ -2781,7 +2872,11 @@ class _HomePageState extends State<HomePage> {
       final path = await ProjectRepository.readLastProjectPath();
 
       if (path == null || path.trim().isEmpty) return;
-      if (!await File(path).exists()) return;
+      // ProjectRepository can recover from .tmp/.bak even if the main file is missing.
+      final hasRecoverableCopy = await File(path).exists() ||
+          await File('$path.tmp').exists() ||
+          await File('$path.bak').exists();
+      if (!hasRecoverableCopy) return;
 
       await _loadProjectFromPath(path, showRecoveryPrompt: true);
     } catch (e) {

@@ -558,7 +558,6 @@ class TransferService {
     return true;
   }
 
-
   /// یک نسخه اضافی در پوشه ثانویه زیر پوشه سال/ماه می‌سازد.
   /// فایل metadata در پوشه ثانویه مسیر نسخه اصلی و مسیر نسخه ثانویه را نگه می‌دارد.
   Future<void> _copyToSecondaryFolder({
@@ -572,17 +571,24 @@ class TransferService {
 
     TimelineGroup? owner;
     for (final group in groups) {
-      if (group.items.any((candidate) =>
-          _key(candidate.path) == _key(primaryPath) ||
-          _key(candidate.path) == _key(item.path))) {
+      if (group.items.any(
+        (candidate) =>
+            _key(candidate.path) == _key(primaryPath) ||
+            _key(candidate.path) == _key(item.path),
+      )) {
         owner = group;
         break;
       }
     }
     if (owner == null) return;
 
-    final groupFolder = await _resolveGroupFolder(group: owner, settings: settings);
-    final monthFolder = settings.createGroupFolder ? groupFolder.parent : groupFolder;
+    final groupFolder = await _resolveGroupFolder(
+      group: owner,
+      settings: settings,
+    );
+    final monthFolder = settings.createGroupFolder
+        ? groupFolder.parent
+        : groupFolder;
     final safeName = FolderBuilder.clean(name);
     if (safeName.isEmpty) return;
 
@@ -600,7 +606,9 @@ class TransferService {
       await source.copy(targetPath);
     }
 
-    final metadataFile = File(p.join(secondaryDirectory.path, '.archino_secondary.json'));
+    final metadataFile = File(
+      p.join(secondaryDirectory.path, '.archino_secondary.json'),
+    );
     Map<String, dynamic> metadata = <String, dynamic>{
       'version': 1,
       'kind': 'secondary_subject_folder',

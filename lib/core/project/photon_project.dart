@@ -30,6 +30,10 @@ class PhotonProject {
   /// عملیات Copy/Move که برای Resume نگهداری می‌شوند.
   List<ProjectOperation> operations;
 
+  /// Portable face and category-learning data embedded in the project file.
+  Map<String, dynamic>? faceDatabase;
+  Map<String, dynamic>? categoryLearning;
+
   PhotonProject({
     required this.name,
     required this.createdAt,
@@ -41,6 +45,8 @@ class PhotonProject {
     required this.applySettings,
     required this.analysisCompleted,
     required this.operations,
+    this.faceDatabase,
+    this.categoryLearning,
   });
 
   factory PhotonProject.empty(String name) {
@@ -56,6 +62,8 @@ class PhotonProject {
       applySettings: null,
       analysisCompleted: false,
       operations: [],
+      faceDatabase: null,
+      categoryLearning: null,
     );
   }
 
@@ -75,6 +83,8 @@ class PhotonProject {
       'groups': groups.map(_groupToJson).toList(),
       'duplicateGroups': duplicateGroups.map(_duplicateToJson).toList(),
       'operations': operations.map((e) => e.toJson()).toList(),
+      if (faceDatabase != null) 'faceDatabase': faceDatabase,
+      if (categoryLearning != null) 'categoryLearning': categoryLearning,
     };
   }
 
@@ -123,14 +133,15 @@ class PhotonProject {
         loadedGroups.add(
           TimelineGroup(
             title: groupJson['title']?.toString() ?? '',
-            start: DateTime.tryParse(groupJson['start']?.toString() ?? '') ??
+            start:
+                DateTime.tryParse(groupJson['start']?.toString() ?? '') ??
                 DateTime.now(),
-            end: DateTime.tryParse(groupJson['end']?.toString() ?? '') ??
+            end:
+                DateTime.tryParse(groupJson['end']?.toString() ?? '') ??
                 DateTime.now(),
             items: items,
             metadata: metadata,
-            metadataDirectory:
-                groupJson['metadataDirectory']?.toString(),
+            metadataDirectory: groupJson['metadataDirectory']?.toString(),
             edited: groupJson['edited'] == true,
             merged: groupJson['merged'] == true,
           ),
@@ -153,8 +164,9 @@ class PhotonProject {
 
         if (items.isEmpty) continue;
 
-        var selectedIndex =
-            d['selectedIndex'] is int ? d['selectedIndex'] as int : 0;
+        var selectedIndex = d['selectedIndex'] is int
+            ? d['selectedIndex'] as int
+            : 0;
         if (selectedIndex < 0 || selectedIndex >= items.length) {
           selectedIndex = 0;
         }
@@ -204,9 +216,7 @@ class PhotonProject {
       for (final raw in rawOperations) {
         if (raw is Map) {
           operations.add(
-            ProjectOperation.fromJson(
-              Map<String, dynamic>.from(raw),
-            ),
+            ProjectOperation.fromJson(Map<String, dynamic>.from(raw)),
           );
         }
       }
@@ -216,10 +226,10 @@ class PhotonProject {
       name: projectJson['name']?.toString() ?? 'پروژه بدون نام',
       createdAt:
           DateTime.tryParse(projectJson['createdAt']?.toString() ?? '') ??
-              DateTime.now(),
+          DateTime.now(),
       updatedAt:
           DateTime.tryParse(projectJson['updatedAt']?.toString() ?? '') ??
-              DateTime.now(),
+          DateTime.now(),
       sourcePaths: rawListOfStrings(json['sourcePaths']),
       mediaItems: media,
       groups: loadedGroups,
@@ -227,6 +237,12 @@ class PhotonProject {
       applySettings: settings,
       analysisCompleted: json['analysisCompleted'] == true,
       operations: operations,
+      faceDatabase: json['faceDatabase'] is Map
+          ? Map<String, dynamic>.from(json['faceDatabase'] as Map)
+          : null,
+      categoryLearning: json['categoryLearning'] is Map
+          ? Map<String, dynamic>.from(json['categoryLearning'] as Map)
+          : null,
     );
   }
 
@@ -256,23 +272,25 @@ class PhotonProject {
       'pHash': item.pHash?.toString(),
       'eyesOpen': item.eyesOpen,
       'analysisMessage': item.analysisMessage,
-      'faces': item.faces.map(
-        (face) => {
-          'leftEyeOpenProbability': face.leftEyeOpenProbability,
-          'rightEyeOpenProbability': face.rightEyeOpenProbability,
-          'smilingProbability': face.smilingProbability,
-          'faceArea': face.faceArea,
-          'headEulerY': face.headEulerY,
-          'headEulerZ': face.headEulerZ,
-          'left': face.left,
-          'top': face.top,
-          'width': face.width,
-          'height': face.height,
-          'landmarks': face.landmarks,
-          'confidence': face.confidence,
-          'personId': face.personId,
-        },
-      ).toList(),
+      'faces': item.faces
+          .map(
+            (face) => {
+              'leftEyeOpenProbability': face.leftEyeOpenProbability,
+              'rightEyeOpenProbability': face.rightEyeOpenProbability,
+              'smilingProbability': face.smilingProbability,
+              'faceArea': face.faceArea,
+              'headEulerY': face.headEulerY,
+              'headEulerZ': face.headEulerZ,
+              'left': face.left,
+              'top': face.top,
+              'width': face.width,
+              'height': face.height,
+              'landmarks': face.landmarks,
+              'confidence': face.confidence,
+              'personId': face.personId,
+            },
+          )
+          .toList(),
       'score': item.score == null
           ? null
           : {
@@ -296,10 +314,8 @@ class PhotonProject {
         final f = Map<String, dynamic>.from(raw);
         faces.add(
           FaceInfo(
-            leftEyeOpenProbability:
-                _double(f['leftEyeOpenProbability']),
-            rightEyeOpenProbability:
-                _double(f['rightEyeOpenProbability']),
+            leftEyeOpenProbability: _double(f['leftEyeOpenProbability']),
+            rightEyeOpenProbability: _double(f['rightEyeOpenProbability']),
             smilingProbability: _double(f['smilingProbability']),
             faceArea: _double(f['faceArea']),
             headEulerY: _double(f['headEulerY']),
@@ -309,9 +325,7 @@ class PhotonProject {
             width: _double(f['width']),
             height: _double(f['height']),
             landmarks: f['landmarks'] is List
-                ? (f['landmarks'] as List)
-                    .map((e) => _double(e))
-                    .toList()
+                ? (f['landmarks'] as List).map((e) => _double(e)).toList()
                 : const <double>[],
             confidence: _double(f['confidence']),
             personId: f['personId']?.toString(),
@@ -350,7 +364,7 @@ class PhotonProject {
       path: json['path']?.toString() ?? '',
       createdAt:
           DateTime.tryParse(json['createdAt']?.toString() ?? '') ??
-              DateTime.now(),
+          DateTime.now(),
       isVideo: json['isVideo'] == true,
       fileSize: json['fileSize'] is int ? json['fileSize'] as int : 0,
       fileName: json['fileName']?.toString() ?? '',
