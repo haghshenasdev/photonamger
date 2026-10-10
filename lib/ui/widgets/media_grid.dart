@@ -409,7 +409,7 @@ class _MediaTileState extends State<_MediaTile> {
         leading: const Icon(FluentIcons.tag),
         text: const Text('مدیریت تگ‌های تصویر…'),
         onPressed: () async {
-          _flyoutController.close();
+          // _flyoutController.close();
           await _editImageTags();
         },
       ),

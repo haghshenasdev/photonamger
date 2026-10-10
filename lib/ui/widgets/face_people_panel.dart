@@ -143,24 +143,28 @@ class _FacePeoplePanelState extends State<FacePeoplePanel> {
 
     final name = await showDialog<String>(
       context: context,
-      builder: (context) {
+      builder: (dialogContext) {
+        void saveName() {
+          final value = controller.text.trim();
+          if (value.isEmpty) return;
+          Navigator.of(dialogContext).pop(value);
+        }
+
         return ContentDialog(
           title: const Text('نام شخص'),
           content: TextBox(
             controller: controller,
             autofocus: true,
             placeholder: 'مثلاً مهدی',
-            onSubmitted: (_) =>
-                Navigator.of(context).pop(controller.text.trim()),
+            onSubmitted: (_) => saveName(),
           ),
           actions: [
             Button(
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text('انصراف'),
             ),
             FilledButton(
-              onPressed: () =>
-                  Navigator.of(context).pop(controller.text.trim()),
+              onPressed: saveName,
               child: const Text('ذخیره'),
             ),
           ],

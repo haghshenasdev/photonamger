@@ -303,7 +303,7 @@ class FaceDatabaseService {
   static const fileName = '.archino_faces.json';
 
   // SFace cosine similarity.
-  static const recognitionThreshold = 0.50;
+  static const recognitionThreshold = 0.70;
   static const exemplarThreshold = 0.56;
   static const maxExemplarsPerPerson = 8;
 
@@ -1410,11 +1410,14 @@ class FaceDatabaseService {
       }
     }
 
+    // Keep existing embeddings as matching exemplars even when the same
+    // image is being rescanned. The old records for each image are removed
+    // immediately before its newly detected faces are written below, so using
+    // them here prevents a rescan from creating fresh generic "شخص" records
+    // and losing the association with already named people.
     final matchingDatabase = FaceDatabase(
       persons: db.persons,
-      faces: db.faces
-          .where((face) => !analysisFingerprints.contains(face.fingerprint))
-          .toList(),
+      faces: List<StoredFace>.from(db.faces),
       scans: db.scans,
       rejections: db.rejections,
     );
@@ -1524,7 +1527,9 @@ class FaceDatabaseService {
 
   bool _isGenericPersonName(String value) {
     final name = value.trim();
-    return name.isEmpty || name == 'شخص' || RegExp(r'^شخص\s+\d+$').hasMatch(name);
+    return name.isEmpty ||
+        name == 'شخص' ||
+        RegExp(r'^شخص\s+\d+$').hasMatch(name);
   }
 
   Future<void> mergePersons({
@@ -1641,13 +1646,15 @@ class FaceDatabaseService {
         personId: secondaryPersonId,
       );
     } catch (error, stackTrace) {
-      stderr.writeln('Face merge saved, but portable manifest sync failed: $error\n$stackTrace');
+      stderr.writeln(
+        'Face merge saved, but portable manifest sync failed: $error\n$stackTrace',
+      );
     }
   }
 
   List<FaceMergeSuggestion> findMergeSuggestions(
     FaceDatabase db, {
-    double threshold = 0.57,
+    double threshold = 0.50,
     int? maxResults,
   }) {
     if (db.persons.length < 2 || db.faces.isEmpty) {
@@ -1724,7 +1731,8 @@ class FaceDatabaseService {
 
     // Return every qualifying pair by default. Callers may still request a
     // bounded result set explicitly when they need one.
-    if (maxResults != null && maxResults >= 0 &&
+    if (maxResults != null &&
+        maxResults >= 0 &&
         suggestions.length > maxResults) {
       return suggestions.sublist(0, maxResults);
     }
@@ -2100,8 +2108,7 @@ class FaceDatabaseService {
         // later face from the same file.
         final alreadyAssignedInThisImage = db.faces.any(
           (face) =>
-              face.fingerprint == fingerprint &&
-              face.personId == person.id,
+              face.fingerprint == fingerprint && face.personId == person.id,
         );
         if (alreadyAssignedInThisImage) {
           continue;
@@ -2191,7 +2198,6 @@ class FaceDatabaseService {
 
     return 0;
   }
-
 
   FacePerson _createPerson(FaceDatabase db) {
     final index = db.persons.length + 1;
