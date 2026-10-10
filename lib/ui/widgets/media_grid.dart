@@ -14,9 +14,15 @@ import 'package:fgphoto/ui/widgets/image_preview_dialog.dart';
 import 'package:fgphoto/ui/widgets/video_thumbnail.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+String _gridPathKey(String path) => path.replaceAll('\\', '/').trim().toLowerCase();
+
 class MediaGrid extends StatelessWidget {
   final List<GridItem> items;
   final VoidCallback? onChanged;
+  final Set<String> selectedPaths;
+  final ValueChanged<List<MediaItem>>? onSelectForTransfer;
+  final VoidCallback? onTransferSelected;
+  final VoidCallback? onClearTransferSelection;
 
   final ValueChanged<String>? onFaceSelected;
 
@@ -36,6 +42,10 @@ class MediaGrid extends StatelessWidget {
     super.key,
     required this.items,
     this.onChanged,
+    this.selectedPaths = const <String>{},
+    this.onSelectForTransfer,
+    this.onTransferSelected,
+    this.onClearTransferSelection,
     this.onFaceSelected,
     this.faceNameResolver,
     this.selectedPersonId,
@@ -60,9 +70,52 @@ class MediaGrid extends StatelessWidget {
       return PreviewItem.media(e.media!);
     }).toList();
 
+    final visibleMedia = <String, MediaItem>{};
+    for (final gridItem in items) {
+      if (gridItem.isDuplicateGroup) {
+        for (final media in gridItem.duplicateGroup!.items) {
+          visibleMedia[media.path.toLowerCase()] = media;
+        }
+      } else {
+        final media = gridItem.media!;
+        visibleMedia[media.path.toLowerCase()] = media;
+      }
+    }
+    final selectedCount = visibleMedia.values
+        .where((media) => selectedPaths.contains(_gridPathKey(media.path)))
+        .length;
+
     return Card(
-      child: GridView.builder(
-        padding: const EdgeInsets.all(10),
+      child: Column(
+        children: [
+          if (selectedCount > 0)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+              child: Row(
+                children: [
+                  Icon(FluentIcons.checkbox_composite, size: 16),
+                  const SizedBox(width: 8),
+                  Text('$selectedCount فایل انتخاب شده'),
+                  const Spacer(),
+                  Button(
+                    onPressed: onClearTransferSelection,
+                    child: const Text('لغو انتخاب'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: onTransferSelected,
+                    child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(FluentIcons.folder, size: 16),
+                      SizedBox(width: 6),
+                      Text('انتقال به گروه زمانی…'),
+                    ]),
+                  ),
+                ],
+              ),
+            ),
+          Expanded(
+            child: GridView.builder(
+              padding: const EdgeInsets.all(10),
         itemCount: items.length,
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 5,
@@ -73,7 +126,18 @@ class MediaGrid extends StatelessWidget {
           final item = items[index];
 
           if (item.isDuplicateGroup) {
-            return DuplicateStackTile(
+            final duplicateItems = item.duplicateGroup!.items;
+            final groupSelected = duplicateItems.isNotEmpty && duplicateItems.every(
+              (media) => selectedPaths.contains(_gridPathKey(media.path)),
+            );
+            return Container(
+              decoration: BoxDecoration(
+                border: groupSelected
+                    ? Border.all(color: FluentTheme.of(context).accentColor, width: 3)
+                    : null,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: DuplicateStackTile(
               group: item.duplicateGroup!,
               previewItems: previewItems,
               onChanged: onChanged,
@@ -83,6 +147,9 @@ class MediaGrid extends StatelessWidget {
               faceDatabase: faceDatabase,
               onFaceAssignmentRejected: onFaceAssignmentRejected,
               onFaceRejectionCleared: onFaceRejectionCleared,
+              onSelectForTransfer: onSelectForTransfer,
+              selectedPaths: selectedPaths,
+              ),
             );
           }
 
@@ -96,8 +163,13 @@ class MediaGrid extends StatelessWidget {
             faceDatabase: faceDatabase,
             onFaceAssignmentRejected: onFaceAssignmentRejected,
             onFaceRejectionCleared: onFaceRejectionCleared,
+            onSelectForTransfer: onSelectForTransfer,
+            isTransferSelected: selectedPaths.contains(_gridPathKey(item.media!.path)),
           );
         },
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -108,6 +180,8 @@ class _MediaTile extends StatefulWidget {
   final List<PreviewItem> previewItems;
 
   final VoidCallback? onChanged;
+  final ValueChanged<List<MediaItem>>? onSelectForTransfer;
+  final bool isTransferSelected;
 
   final ValueChanged<String>? onFaceSelected;
 
@@ -127,6 +201,8 @@ class _MediaTile extends StatefulWidget {
     required this.item,
     required this.previewItems,
     this.onChanged,
+    this.onSelectForTransfer,
+    this.isTransferSelected = false,
     this.onFaceSelected,
     this.faceNameResolver,
     this.selectedPersonId,
@@ -458,10 +534,18 @@ class _MediaTileState extends State<_MediaTile> {
         onTap: _openPreview,
 
         onSecondaryTapUp: (details) {
+          widget.onSelectForTransfer?.call([widget.item]);
           unawaited(_showContextMenu(details.globalPosition));
         },
 
-        child: ClipRRect(
+        child: Container(
+          decoration: BoxDecoration(
+            border: widget.isTransferSelected
+                ? Border.all(color: FluentTheme.of(context).accentColor, width: 3)
+                : null,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: ClipRRect(
           borderRadius: BorderRadius.circular(8),
           child: Stack(
             fit: StackFit.expand,
@@ -498,6 +582,7 @@ class _MediaTileState extends State<_MediaTile> {
                 ),
               ),
             ],
+          ),
           ),
         ),
       ),

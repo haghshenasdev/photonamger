@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/services.dart';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:file_picker/file_picker.dart';
@@ -48,6 +49,10 @@ import 'package:fgphoto/core/analysis/face_database.dart';
 import 'package:fgphoto/core/metadata/category_learning_service.dart';
 import 'package:fgphoto/core/portable/portable_project_database_service.dart';
 
+class _SaveProjectIntent extends Intent {
+  const _SaveProjectIntent();
+}
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -66,6 +71,7 @@ class _HomePageState extends State<HomePage> {
   TimelineGroup? selectedGroup;
 
   List<DuplicateGroup> duplicateGroups = [];
+  final Set<String> _selectedTransferPaths = <String>{};
 
   FaceDatabase _faceDatabase = FaceDatabase();
   String? _faceDatabaseDirectory;
@@ -1202,7 +1208,23 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    return NavigationView(
+    return Shortcuts(
+      shortcuts: <ShortcutActivator, Intent>{
+        const SingleActivator(LogicalKeyboardKey.keyS, control: true):
+            const _SaveProjectIntent(),
+      },
+      child: Actions(
+        actions: <Type, Action<Intent>>{
+          _SaveProjectIntent: CallbackAction<_SaveProjectIntent>(
+            onInvoke: (_) {
+              unawaited(_saveProject());
+              return null;
+            },
+          ),
+        },
+        child: Focus(
+          autofocus: true,
+          child: NavigationView(
       content: ScaffoldPage(
         header: PageHeader(
           title: const Text("آرشینو - مدیریت تصاویر"),
@@ -1242,6 +1264,7 @@ class _HomePageState extends State<HomePage> {
                         setState(() {
                           selectedGroup = group;
                           _selectedFacePersonId = null;
+                          _selectedTransferPaths.clear();
                         });
                       },
 
@@ -1284,6 +1307,10 @@ class _HomePageState extends State<HomePage> {
                             items: _selectedFacePersonId != null
                                 ? _buildFaceGridItems()
                                 : buildGridItems(),
+                            selectedPaths: _selectedTransferPaths,
+                            onSelectForTransfer: _toggleTransferSelection,
+                            onTransferSelected: _transferSelectedToGroup,
+                            onClearTransferSelection: () => setState(_selectedTransferPaths.clear),
                             selectedPersonId: _selectedFacePersonId,
                             onFaceSelected: _selectFacePerson,
                             faceNameResolver: _facePersonName,
@@ -1544,6 +1571,9 @@ class _HomePageState extends State<HomePage> {
               ],
             ),
           ],
+        ),
+      ),
+          ),
         ),
       ),
     );
@@ -2606,6 +2636,129 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  String _transferPathKey(String path) => _normalizePath(path).toLowerCase();
+
+  void _toggleTransferSelection(List<MediaItem> clickedItems) {
+    if (clickedItems.isEmpty) return;
+    setState(() {
+      final keys = clickedItems.map((item) => _transferPathKey(item.path)).toSet();
+      final allSelected = keys.every(_selectedTransferPaths.contains);
+      if (allSelected) {
+        _selectedTransferPaths.removeAll(keys);
+      } else {
+        _selectedTransferPaths.addAll(keys);
+      }
+    });
+  }
+
+  Future<void> _transferSelectedToGroup() async {
+    final selected = <String, MediaItem>{};
+    for (final item in mediaItems) {
+      final key = _transferPathKey(item.path);
+      if (_selectedTransferPaths.contains(key)) selected[key] = item;
+    }
+    if (selected.isEmpty || !mounted) return;
+
+    final choice = await showDialog<Object?>(
+      context: context,
+      builder: (dialogContext) => ContentDialog(
+        title: Text('انتقال ${selected.length} فایل به گروه زمانی'),
+        content: SizedBox(
+          width: 440,
+          height: 320,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('گروه مقصد را انتخاب کنید یا گروه زمانی جدید بسازید.'),
+              const SizedBox(height: 8),
+              Expanded(
+                child: ListView.separated(
+                  itemCount: groups.length,
+                  separatorBuilder: (_, __) => const Divider(),
+                  itemBuilder: (context, index) {
+                    final group = groups[index];
+                    return Button(
+                      onPressed: () => Navigator.pop(dialogContext, group),
+                      child: Row(children: [
+                        const Icon(FluentIcons.calendar),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(group.title, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                        Text('${group.items.length} فایل'),
+                      ]),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          Button(onPressed: () => Navigator.pop(dialogContext), child: const Text('انصراف')),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, '__create_new_group__'),
+            child: const Text('ساخت گروه زمانی جدید…'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || choice == null) return;
+
+    TimelineGroup? target;
+    if (choice is TimelineGroup) {
+      target = choice;
+    } else if (choice == '__create_new_group__') {
+      final nameController = TextEditingController(text: 'گروه زمانی جدید');
+      final name = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => ContentDialog(
+          title: const Text('ساخت گروه زمانی'),
+          content: TextBox(controller: nameController, placeholder: 'نام گروه'),
+          actions: [
+            Button(onPressed: () => Navigator.pop(dialogContext), child: const Text('انصراف')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, nameController.text.trim()), child: const Text('ساخت و انتقال')),
+          ],
+        ),
+      );
+      nameController.dispose();
+      if (!mounted || name == null || name.trim().isEmpty) return;
+      final chosenItems = selected.values.toList();
+      chosenItems.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      target = TimelineGroup(
+        title: name.trim(),
+        start: chosenItems.first.createdAt,
+        end: chosenItems.last.createdAt,
+        items: <MediaItem>[],
+      );
+      groups.add(target);
+      groups.sort((a, b) => a.start.compareTo(b.start));
+    }
+    if (target == null) return;
+
+    final selectedKeys = selected.keys.toSet();
+    setState(() {
+      for (final group in groups) {
+        group.items.removeWhere((item) => selectedKeys.contains(_transferPathKey(item.path)));
+      }
+      for (final item in selected.values) {
+        if (!target!.items.any((existing) => _transferPathKey(existing.path) == _transferPathKey(item.path))) {
+          target!.items.add(item);
+        }
+      }
+      selectedGroup = target;
+      _selectedTransferPaths.clear();
+      _selectedFacePersonId = null;
+    });
+    _scheduleProjectSave();
+    if (mounted) {
+      await displayInfoBar(context, builder: (context, close) => InfoBar(
+        title: const Text('انتقال انجام شد'),
+        content: Text('${selected.length} فایل به «${target!.title}» منتقل شد.'),
+        severity: InfoBarSeverity.success,
+        onClose: close,
+      ));
+    }
+  }
+
   List<GridItem> buildGridItems() {
     if (selectedGroup == null) {
       return [];
@@ -3002,6 +3155,7 @@ class _HomePageState extends State<HomePage> {
       mediaItems = [];
       groups = [];
       duplicateGroups = [];
+      _selectedTransferPaths.clear();
       selectedGroup = null;
       _selectedFacePersonId = null;
       _categoryLearningModel = const CategoryLearningModel();

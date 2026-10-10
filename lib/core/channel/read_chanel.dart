@@ -27,6 +27,7 @@ class ReadChannelService {
 
   Future<List<ChannelPost>> read({
     required DateTime oldestDate,
+    bool onlyImagePosts = true,
     void Function(double? progress, String status)? onProgress,
   }) async {
     try {
@@ -50,9 +51,33 @@ class ReadChannelService {
             ? "https://eitaa.com/$channel"
             : "https://eitaa.com/$channel?before=$currentId";
 
-        final result = await dom(url);
+        Map<int, List<String>> result = {};
+        Object? pageError;
+        // A transient request/HTML error must not be mistaken for the end
+        // of the channel. Retry the same cursor a few times, then stop while
+        // keeping posts already collected.
+        for (var attempt = 0; attempt < 3; attempt++) {
+          try {
+            result = await dom(url);
+            pageError = null;
+            break;
+          } catch (error) {
+            pageError = error;
+            if (attempt < 2) {
+              await Future.delayed(Duration(seconds: 2 + attempt * 3));
+            }
+          }
+        }
+
+        if (pageError != null) {
+          onProgress?.call(null, 'خواندن صفحه $page متوقف شد؛ خطا: $pageError');
+          break;
+        }
 
         if (result.isEmpty) {
+          // A valid empty page means there is no more history. Keep the
+          // time-window behavior below unchanged.
+          onProgress?.call(null, 'صفحه $page پست قابل‌خواندن نداشت؛ پایان تاریخچه یا تغییر ساختار صفحه.');
           break;
         }
 
@@ -63,7 +88,9 @@ class ReadChannelService {
         for (final id in ids) {
           final post = result[id]!;
 
-          final date = DateTime.parse(post[1]);
+          final parsedDate = DateTime.tryParse(post[1]);
+          if (parsedDate == null) continue;
+          final date = parsedDate;
 
           // قدیمی‌ترین تاریخ این صفحه
           if (date.isBefore(oldestPostInPage)) {
@@ -71,7 +98,8 @@ class ReadChannelService {
           }
 
           // فقط پست‌هایی که در بازه زمانی مورد نیاز هستند
-          if (!date.isBefore(oldestDate)) {
+          if (!date.isBefore(oldestDate) &&
+              (!onlyImagePosts || (post.length > 2 && post[2] == 'true'))) {
             newPosts[id] = post;
           }
         }
@@ -81,8 +109,14 @@ class ReadChannelService {
           reachedOldest = true;
         }
 
-        // صفحه بعد
-        currentId = ids.last;
+        // صفحه بعد: use the smallest id from this page as the cursor.
+        // Protect against a page repeating the same IDs indefinitely.
+        final nextId = ids.last;
+        if (currentId != null && nextId >= currentId) {
+          onProgress?.call(null, 'صفحه‌بندی ایتا تکراری شد؛ برای جلوگیری از حلقه، خواندن متوقف شد.');
+          break;
+        }
+        currentId = nextId;
       }
 
       onProgress?.call(null, "در حال حذف عناوین تکراری...");
@@ -109,8 +143,10 @@ class ReadChannelService {
 
         final post = filtered[id]!;
 
-        final title = post[0];
-        final date = DateTime.parse(post[1]);
+        final title = post[0].trim();
+        final parsedDate = DateTime.tryParse(post[1]);
+        if (title.isEmpty || parsedDate == null) continue;
+        final date = parsedDate;
 
         final cats = await predictor.predictWithCity(title);
 
@@ -227,11 +263,10 @@ class ReadChannelService {
           document.querySelector("section.etme_channel_history");
 
       if (section == null) {
-        return {};
+        throw FormatException('ساختار تاریخچه کانال در پاسخ ایتا پیدا نشد؛ احتمالاً HTML تغییر کرده یا دسترسی محدود شده است.');
       }
 
-      final messages =
-          section.querySelectorAll("div.etme_widget_message_wrap");
+      final messages = section.querySelectorAll("div.etme_widget_message_wrap");
 
       final result = <int, List<String>>{};
 
@@ -244,16 +279,34 @@ class ReadChannelService {
 
         if (id == null) continue;
 
-        final text =
-            message.querySelector(".etme_widget_message_text")?.text.trim() ??
-                "";
+        // Eitaa has used more than one markup layout. Prefer the message text,
+        // but also inspect caption/legacy selectors. Element.text keeps text
+        // from later lines and image captions; normalize whitespace afterwards.
+        final textElement = message.querySelector('.etme_widget_message_text') ??
+            message.querySelector('.etme_widget_message_caption') ??
+            message.querySelector('.etme_widget_message_content') ??
+            message.querySelector('.tgme_widget_message_text');
+        final rawText = textElement?.text ?? '';
+        final text = rawText
+            .replaceAll('\u00a0', ' ')
+            .replaceAll(RegExp(r'[ \t]+\n'), '\n')
+            .replaceAll(RegExp(r'\n[ \t]+'), '\n')
+            .replaceAll(RegExp(r'\n{3,}'), '\n\n')
+            .trim();
 
-        final time =
-            message.querySelector("time.time")?.attributes["datetime"] ?? "";
+        final timeElement = message.querySelector('time.time') ??
+            message.querySelector('time[datetime]') ??
+            message.querySelector('time');
+        final time = timeElement?.attributes['datetime'] ??
+            timeElement?.attributes['title'] ?? '';
 
-        if (text.isEmpty || time.isEmpty) continue;
+        if (text.isEmpty || DateTime.tryParse(time) == null) continue;
 
-        result[id] = [text, time];
+        final hasImage = message.querySelector('img') != null ||
+            message.querySelector('.etme_widget_message_photo') != null ||
+            message.querySelector('.etme_widget_message_video') != null;
+
+        result[id] = [text, time, hasImage.toString()];
       }
 
       _cache[url] = _CachedResponse(
@@ -276,8 +329,9 @@ class ReadChannelService {
 
       return result;
     } catch (e) {
-      print(e);
-      return {};
+      // Let read() retry this page rather than silently treating the error as
+      // an empty final page.
+      rethrow;
     }
   }
 

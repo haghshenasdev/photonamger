@@ -245,6 +245,7 @@ class _TitleSuggestionDialogState extends State<TitleSuggestionDialog> {
 
       final posts = await rc.read(
         oldestDate: oldestDate,
+        onlyImagePosts: onlyImagePosts,
         onProgress: (value, message) {
           if (!mounted) {
             return;

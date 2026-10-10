@@ -16,6 +16,8 @@ class DuplicateStackTile extends StatefulWidget {
   final List<PreviewItem> previewItems;
 
   final ValueChanged<String>? onFaceSelected;
+  final ValueChanged<List<MediaItem>>? onSelectForTransfer;
+  final Set<String> selectedPaths;
 
   final String? Function(String personId)? faceNameResolver;
 
@@ -40,6 +42,8 @@ class DuplicateStackTile extends StatefulWidget {
     required this.group,
     required this.previewItems,
     this.onFaceSelected,
+    this.onSelectForTransfer,
+    this.selectedPaths = const <String>{},
     this.faceNameResolver,
     this.selectedPersonId,
     this.onChanged,
@@ -345,6 +349,7 @@ class _DuplicateStackTileState extends State<DuplicateStackTile> {
       // اگر روی قسمت قابل مشاهده‌ی همین لایه راست‌کلیک شود،
       // همان عکس به عنوان clickedItem مشخص می‌شود.
       onSecondaryTapUp: (details) {
+        widget.onSelectForTransfer?.call(widget.group.items);
         unawaited(_showContextMenu(details.globalPosition, clickedItem: item));
       },
 
@@ -391,6 +396,7 @@ class _DuplicateStackTileState extends State<DuplicateStackTile> {
         // راست‌کلیک روی هر قسمت از Stack
         // منوی تمام عکس‌های گروه را باز می‌کند.
         onSecondaryTapUp: (details) {
+          widget.onSelectForTransfer?.call(widget.group.items);
           unawaited(
             _showContextMenu(details.globalPosition, clickedItem: selectedItem),
           );
