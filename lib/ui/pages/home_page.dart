@@ -54,7 +54,10 @@ class _SaveProjectIntent extends Intent {
 }
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  const HomePage({super.key, this.initialProjectPath});
+
+  /// A .photonamger file supplied by Windows when the user double-clicks it.
+  final String? initialProjectPath;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -114,7 +117,14 @@ class _HomePageState extends State<HomePage> {
       bestPhotoSelector: BestPhotoSelector(),
     );
 
-    Future.microtask(_restoreLastProject);
+    Future.microtask(() async {
+      final launchPath = widget.initialProjectPath;
+      if (launchPath != null && launchPath.trim().isNotEmpty) {
+        await _loadProjectFromPath(launchPath, showRecoveryPrompt: true);
+      } else {
+        await _restoreLastProject();
+      }
+    });
   }
 
   @override

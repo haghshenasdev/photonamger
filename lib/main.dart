@@ -1,15 +1,31 @@
+import 'dart:io';
+
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:video_player_win/video_player_win.dart';
+import 'core/project/project_file_association_service.dart';
 import 'ui/pages/home_page.dart';
 
-void main() {
+Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
-  // VideoPlayerWin.registerWith();
-  runApp(const MediaOrganizerApp());
+
+  String? launchProjectPath;
+  if (Platform.isWindows) {
+    launchProjectPath = ProjectFileAssociationService.projectPathFromArguments(args);
+    try {
+      await ProjectFileAssociationService.registerForCurrentUser();
+    } catch (e) {
+      // Opening an already-associated file should still work even if Windows
+      // prevents updating the association.
+      debugPrint('Project file association registration failed: $e');
+    }
+  }
+
+  runApp(MediaOrganizerApp(initialProjectPath: launchProjectPath));
 }
 
 class MediaOrganizerApp extends StatelessWidget {
-  const MediaOrganizerApp({super.key});
+  const MediaOrganizerApp({super.key, this.initialProjectPath});
+
+  final String? initialProjectPath;
 
   @override
   Widget build(BuildContext context) {
@@ -19,7 +35,7 @@ class MediaOrganizerApp extends StatelessWidget {
       theme: FluentThemeData(brightness: Brightness.light),
       locale: const Locale('fa'),
       supportedLocales: const [Locale('fa')],
-      home: const HomePage(),
+      home: HomePage(initialProjectPath: initialProjectPath),
     );
   }
 }
