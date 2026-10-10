@@ -150,6 +150,19 @@ class _DuplicateStackTileState extends State<DuplicateStackTile> {
 
         final items = widget.group.items;
 
+        // انتخاب کل گروه برای انتقال باید صریحاً از منو درخواست شود.
+        menuItems.add(
+          MenuFlyoutItem(
+            leading: const Icon(FluentIcons.checkbox_composite),
+            text: const Text('انتخاب همه عکس‌های گروه برای انتقال'),
+            onPressed: () {
+              _flyoutController.close();
+              widget.onSelectForTransfer?.call(items);
+            },
+          ),
+        );
+        menuItems.add(const MenuFlyoutSeparator());
+
         // =========================================================
         // تمام عکس‌های Duplicate
         // =========================================================
@@ -295,6 +308,26 @@ class _DuplicateStackTileState extends State<DuplicateStackTile> {
           }
 
           // -------------------------------------------------------
+          // انتخاب صریح عکس برای انتقال
+          // -------------------------------------------------------
+          final isTransferSelected = widget.selectedPaths.any(
+            (path) => path.replaceAll('\\', '/').trim().toLowerCase() ==
+                item.path.replaceAll('\\', '/').trim().toLowerCase(),
+          );
+          menuItems.add(
+            MenuFlyoutItem(
+              leading: const Icon(FluentIcons.checkbox_composite),
+              text: Text(isTransferSelected
+                  ? '   عکس ${index + 1}: لغو انتخاب برای انتقال'
+                  : '   عکس ${index + 1}: انتخاب برای انتقال'),
+              onPressed: () {
+                _flyoutController.close();
+                widget.onSelectForTransfer?.call([item]);
+              },
+            ),
+          );
+
+          // -------------------------------------------------------
           // فایل و پوشه همان عکس
           // -------------------------------------------------------
 
@@ -349,7 +382,7 @@ class _DuplicateStackTileState extends State<DuplicateStackTile> {
       // اگر روی قسمت قابل مشاهده‌ی همین لایه راست‌کلیک شود،
       // همان عکس به عنوان clickedItem مشخص می‌شود.
       onSecondaryTapUp: (details) {
-        widget.onSelectForTransfer?.call(widget.group.items);
+        // راست‌کلیک فقط منو را باز می‌کند؛ انتخاب با گزینه منو است.
         unawaited(_showContextMenu(details.globalPosition, clickedItem: item));
       },
 
@@ -396,7 +429,7 @@ class _DuplicateStackTileState extends State<DuplicateStackTile> {
         // راست‌کلیک روی هر قسمت از Stack
         // منوی تمام عکس‌های گروه را باز می‌کند.
         onSecondaryTapUp: (details) {
-          widget.onSelectForTransfer?.call(widget.group.items);
+          // راست‌کلیک روی کارت گروه نباید خودش انتخاب را فعال کند.
           unawaited(
             _showContextMenu(details.globalPosition, clickedItem: selectedItem),
           );

@@ -400,6 +400,19 @@ class _MediaTileState extends State<_MediaTile> {
 
     final menuItems = <MenuFlyoutItemBase>[];
 
+    // انتخاب برای انتقال فقط با دستور صریح منوی راست‌کلیک انجام می‌شود.
+    menuItems.add(
+      MenuFlyoutItem(
+        leading: const Icon(FluentIcons.checkbox_composite),
+        text: Text(widget.isTransferSelected ? 'لغو انتخاب برای انتقال' : 'انتخاب برای انتقال'),
+        onPressed: () {
+          _flyoutController.close();
+          widget.onSelectForTransfer?.call([widget.item]);
+        },
+      ),
+    );
+    menuItems.add(const MenuFlyoutSeparator());
+
     /*
      * ==============================
      * تشخیص‌های فعلی
@@ -534,7 +547,7 @@ class _MediaTileState extends State<_MediaTile> {
         onTap: _openPreview,
 
         onSecondaryTapUp: (details) {
-          widget.onSelectForTransfer?.call([widget.item]);
+          // راست‌کلیک فقط منو را باز می‌کند؛ انتخاب از گزینه منو انجام می‌شود.
           unawaited(_showContextMenu(details.globalPosition));
         },
 
