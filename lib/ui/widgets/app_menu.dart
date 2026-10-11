@@ -1,5 +1,5 @@
-import 'package:fgphoto/ui/dialogs/about_dialog.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:fgphoto/ui/dialogs/about_dialog.dart' as app_about;
 
 class AppMenu extends StatefulWidget {
   const AppMenu({
@@ -26,18 +26,35 @@ class AppMenu extends StatefulWidget {
 }
 
 class _AppMenuState extends State<AppMenu> {
-  final FlyoutController _controller = FlyoutController();
+  final _projectController = FlyoutController();
+  final _archiveController = FlyoutController();
+  final _viewController = FlyoutController();
+  final _toolsController = FlyoutController();
+  final _helpController = FlyoutController();
 
   @override
   void dispose() {
-    _controller.dispose();
+    _projectController.dispose();
+    _archiveController.dispose();
+    _viewController.dispose();
+    _toolsController.dispose();
+    _helpController.dispose();
     super.dispose();
   }
 
-  Future<void> _showAbout() async {
-    await showDialog<void>(
-      context: context,
-      builder: (context) => const AboutDialog(),
+  void _openMenu(FlyoutController controller, List<MenuFlyoutItemBase> items) {
+    controller.showFlyout<void>(builder: (context) => MenuFlyout(items: items));
+  }
+
+  MenuFlyoutItem _item({
+    required IconData icon,
+    required String title,
+    required VoidCallback onPressed,
+  }) {
+    return MenuFlyoutItem(
+      leading: Icon(icon),
+      text: Text(title),
+      onPressed: onPressed,
     );
   }
 
@@ -45,11 +62,11 @@ class _AppMenuState extends State<AppMenu> {
     await showDialog<void>(
       context: context,
       builder: (context) => ContentDialog(
-        title: const Text('راهنما'),
+        title: const Text('راهنمای آرشینو'),
         content: const Text(
-          'ابتدا یک یا چند پوشه را انتخاب کنید و سپس روی «شروع اسکن و آنالیز» کلیک کنید.\n\n'
-          'از منوی پروژه می‌توانید کار فعلی را در یک فایل .photonamger ذخیره کنید '
-          'و بعداً با باز کردن همان فایل ادامه دهید.',
+          'برای شروع، پوشه‌های تصاویر را انتخاب و اسکن و آنالیز را اجرا کنید.\n\n'
+          'برای حفظ تغییرات، پروژه را ذخیره کنید. '
+          'پروژه‌های ذخیره‌شده را می‌توانید بعداً دوباره باز کنید.',
         ),
         actions: [
           Button(
@@ -61,74 +78,184 @@ class _AppMenuState extends State<AppMenu> {
     );
   }
 
-  void _openMenu() {
-    _controller.showFlyout<void>(
-      builder: (context) {
-        return MenuFlyout(
-          items: [
-            MenuFlyoutItem(
-              leading: const Icon(FluentIcons.add),
-              text: const Text('پروژه جدید'),
-              onPressed: widget.onNewProject,
+  Future<void> _showAbout() async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => const app_about.AboutDialog(),
+    );
+  }
+
+  Widget _topMenu({
+    required String title,
+    required IconData icon,
+    required FlyoutController controller,
+    required List<MenuFlyoutItemBase> items,
+  }) {
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(end: 5),
+      child: FlyoutTarget(
+        controller: controller,
+        child: Button(
+          onPressed: () => _openMenu(controller, items),
+          style: ButtonStyle(
+            padding: WidgetStateProperty.all(
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             ),
-            MenuFlyoutItem(
-              leading: const Icon(FluentIcons.open_file),
-              text: const Text('باز کردن پروژه'),
-              onPressed: widget.onOpenProject,
-            ),
-            MenuFlyoutItem(
-              leading: const Icon(FluentIcons.save),
-              text: const Text('ذخیره پروژه'),
-              onPressed: widget.onSaveProject,
-            ),
-            MenuFlyoutItem(
-              leading: const Icon(FluentIcons.save),
-              text: const Text('ذخیره پروژه با نام جدید'),
-              onPressed: widget.onSaveProjectAs,
-            ),
-            const MenuFlyoutSeparator(),
-            MenuFlyoutItem(
-              leading: const Icon(FluentIcons.database),
-              text: const Text('بارگذاری اطلاعات از آرشیو هارد'),
-              onPressed: widget.onImportArchive,
-            ),
-            MenuFlyoutItem(
-              leading: const Icon(FluentIcons.sync),
-              text: const Text('ادامه عملیات ناتمام'),
-              onPressed: widget.onResumeOperations,
-            ),
-            MenuFlyoutItem(
-              leading: const Icon(FluentIcons.bar_chart_vertical),
-              text: const Text('آمار جامع تصاویر'),
-              onPressed: () {
-                _controller.close();
-                widget.onShowStatistics();
-              },
-            ),
-            const MenuFlyoutSeparator(),
-            MenuFlyoutItem(
-              leading: const Icon(FluentIcons.info),
-              text: const Text('درباره نرم‌افزار'),
-              onPressed: _showAbout,
-            ),
-            MenuFlyoutItem(
-              leading: const Icon(FluentIcons.questionnaire),
-              text: const Text('راهنما'),
-              onPressed: _showHelp,
-            ),
-          ],
-        );
-      },
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 15),
+              const SizedBox(width: 7),
+              Text(title),
+              const SizedBox(width: 6),
+              const Icon(FluentIcons.chevron_down, size: 9),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return FlyoutTarget(
-      controller: _controller,
-      child: IconButton(
-        icon: const Icon(FluentIcons.more, size: 18),
-        onPressed: _openMenu,
+    final theme = FluentTheme.of(context);
+
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        decoration: BoxDecoration(
+          color: theme.micaBackgroundColor,
+          border: Border(
+            bottom: BorderSide(color: theme.acrylicBackgroundColor, width: 1),
+          ),
+        ),
+        child: Row(
+          textDirection: TextDirection.ltr,
+          children: [
+            _topMenu(
+              title: 'پروژه',
+              icon: FluentIcons.document,
+              controller: _projectController,
+              items: [
+                _item(
+                  icon: FluentIcons.add,
+                  title: 'پروژه جدید',
+                  onPressed: widget.onNewProject,
+                ),
+                _item(
+                  icon: FluentIcons.open_file,
+                  title: 'باز کردن پروژه',
+                  onPressed: widget.onOpenProject,
+                ),
+                const MenuFlyoutSeparator(),
+                _item(
+                  icon: FluentIcons.save,
+                  title: 'ذخیره پروژه',
+                  onPressed: widget.onSaveProject,
+                ),
+                _item(
+                  icon: FluentIcons.save_as,
+                  title: 'ذخیره پروژه با نام جدید',
+                  onPressed: widget.onSaveProjectAs,
+                ),
+              ],
+            ),
+
+            // دکمه ذخیره در کنار منوهای بالایی
+            Padding(
+              padding: const EdgeInsetsDirectional.only(end: 5),
+              child: Tooltip(
+                message: 'ذخیره پروژه (Ctrl+S)',
+                child: Button(
+                  onPressed: widget.onSaveProject,
+                  style: ButtonStyle(
+                    padding: WidgetStateProperty.all(
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(FluentIcons.save, size: 15),
+                      SizedBox(width: 7),
+                      Text('ذخیره'),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            _topMenu(
+              title: 'بازیابی',
+              icon: FluentIcons.archive,
+              controller: _archiveController,
+              items: [
+                _item(
+                  icon: FluentIcons.database,
+                  title: 'بارگذاری اطلاعات از آرشیو هارد',
+                  onPressed: widget.onImportArchive,
+                ),
+                _item(
+                  icon: FluentIcons.sync,
+                  title: 'ادامه عملیات ناتمام',
+                  onPressed: widget.onResumeOperations,
+                ),
+              ],
+            ),
+
+            _topMenu(
+              title: 'نمایش',
+              icon: FluentIcons.view,
+              controller: _viewController,
+              items: [
+                _item(
+                  icon: FluentIcons.bar_chart_vertical,
+                  title: 'آمار جامع تصاویر',
+                  onPressed: widget.onShowStatistics,
+                ),
+              ],
+            ),
+
+            _topMenu(
+              title: 'ابزارها',
+              icon: FluentIcons.settings,
+              controller: _toolsController,
+              items: [
+                _item(
+                  icon: FluentIcons.database,
+                  title: 'بارگذاری اطلاعات از آرشیو هارد',
+                  onPressed: widget.onImportArchive,
+                ),
+                _item(
+                  icon: FluentIcons.sync,
+                  title: 'ادامه عملیات ناتمام',
+                  onPressed: widget.onResumeOperations,
+                ),
+              ],
+            ),
+
+            _topMenu(
+              title: 'راهنما',
+              icon: FluentIcons.help,
+              controller: _helpController,
+              items: [
+                _item(
+                  icon: FluentIcons.questionnaire,
+                  title: 'راهنمای استفاده',
+                  onPressed: _showHelp,
+                ),
+                _item(
+                  icon: FluentIcons.info,
+                  title: 'درباره آرشینو',
+                  onPressed: _showAbout,
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

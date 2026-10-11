@@ -132,9 +132,11 @@ class _HomePageState extends State<HomePage> {
     _saveTimer?.cancel();
     // Persist the latest in-memory state even if the debounce timer had not fired yet.
     // If the user has not named the project yet, save to the recovery project.
-    unawaited(_enqueueProjectSave().catchError((Object e) {
-      debugPrint('Final project save error: $e');
-    }));
+    unawaited(
+      _enqueueProjectSave().catchError((Object e) {
+        debugPrint('Final project save error: $e');
+      }),
+    );
     unawaited(engine.faceRecognitionEngine.dispose());
     super.dispose();
   }
@@ -196,13 +198,14 @@ class _HomePageState extends State<HomePage> {
 
     FaceDatabase db;
     var diskHasData = false;
-    final embeddedHasFaces = embeddedDb != null &&
+    final embeddedHasFaces =
+        embeddedDb != null &&
         (embeddedDb.persons.isNotEmpty || embeddedDb.faces.isNotEmpty);
     if (await diskFile.exists()) {
       final diskDb = await service.load(directory);
-      final diskHasFaces =
-          diskDb.persons.isNotEmpty || diskDb.faces.isNotEmpty;
-      diskHasData = diskHasFaces ||
+      final diskHasFaces = diskDb.persons.isNotEmpty || diskDb.faces.isNotEmpty;
+      diskHasData =
+          diskHasFaces ||
           (!embeddedHasFaces &&
               (diskDb.scans.isNotEmpty || diskDb.rejections.isNotEmpty));
       db = diskHasData ? diskDb : (embeddedDb ?? diskDb);
@@ -210,7 +213,8 @@ class _HomePageState extends State<HomePage> {
       db = embeddedDb ?? FaceDatabase();
     }
 
-    final embeddedHasData = embeddedDb != null &&
+    final embeddedHasData =
+        embeddedDb != null &&
         (embeddedDb.persons.isNotEmpty ||
             embeddedDb.faces.isNotEmpty ||
             embeddedDb.scans.isNotEmpty ||
@@ -405,7 +409,9 @@ class _HomePageState extends State<HomePage> {
     const service = CategoryLearningService();
     final embeddedRules = _project?.categoryLearning;
     final model = embeddedRules != null
-        ? CategoryLearningModel.fromJson(Map<String, dynamic>.from(embeddedRules))
+        ? CategoryLearningModel.fromJson(
+            Map<String, dynamic>.from(embeddedRules),
+          )
         : await service.load(directory);
 
     final merged = service.merge(model, service.rebuild(groups));
@@ -701,10 +707,12 @@ class _HomePageState extends State<HomePage> {
       // displaying success. Previously the UI could report success even when
       // mergePersons returned without changing the database.
       final persistedDatabase = await faceService.load(directory);
-      final primaryPersisted =
-          persistedDatabase.persons.any((person) => person.id == primaryId);
-      final secondaryPersisted =
-          persistedDatabase.persons.any((person) => person.id == secondaryId);
+      final primaryPersisted = persistedDatabase.persons.any(
+        (person) => person.id == primaryId,
+      );
+      final secondaryPersisted = persistedDatabase.persons.any(
+        (person) => person.id == secondaryId,
+      );
       if (!primaryPersisted || secondaryPersisted) {
         throw StateError(
           'تغییر ادغام در پایگاه چهره‌ها ثبت نشد؛ '
@@ -773,10 +781,12 @@ class _HomePageState extends State<HomePage> {
 
       // Do not show a success message unless the refreshed database confirms
       // that the secondary person was actually removed and the primary remains.
-      final primaryStillExists =
-          _faceDatabase.persons.any((person) => person.id == primaryId);
-      final secondaryStillExists =
-          _faceDatabase.persons.any((person) => person.id == secondaryId);
+      final primaryStillExists = _faceDatabase.persons.any(
+        (person) => person.id == primaryId,
+      );
+      final secondaryStillExists = _faceDatabase.persons.any(
+        (person) => person.id == secondaryId,
+      );
       if (!primaryStillExists || secondaryStillExists) {
         throw StateError(
           'ادغام تأیید نشد؛ فرد دوم هنوز در فهرست پایگاه چهره‌ها وجود دارد. '
@@ -996,7 +1006,8 @@ class _HomePageState extends State<HomePage> {
     final rootKey = person.coverRootKey ?? face?.rootKey;
     if (relative == null || rootKey == null) return null;
     for (final root in sourcePaths) {
-      if (p.basename(p.normalize(root)).toLowerCase() == rootKey.toLowerCase()) {
+      if (p.basename(p.normalize(root)).toLowerCase() ==
+          rootKey.toLowerCase()) {
         final candidate = p.normalize(p.join(root, relative));
         if (File(candidate).existsSync()) return candidate;
       }
@@ -1044,10 +1055,14 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  final Map<String, Future<File?>> _facePreviewFiles = <String, Future<File?>>{};
+  final Map<String, Future<File?>> _facePreviewFiles =
+      <String, Future<File?>>{};
 
   Future<File?> _faceImageFileForPerson(FacePerson person) {
-    return _facePreviewFiles.putIfAbsent(person.id, () => _createFacePreviewFile(person));
+    return _facePreviewFiles.putIfAbsent(
+      person.id,
+      () => _createFacePreviewFile(person),
+    );
   }
 
   Future<File?> _createFacePreviewFile(FacePerson person) async {
@@ -1055,8 +1070,13 @@ class _HomePageState extends State<HomePage> {
     final path = _faceImagePathForPerson(person);
     for (final face in _faceDatabase.faces) {
       if (face.personId != person.id) continue;
-      final resolved = const FaceDatabaseService().resolveStoredPath(face, sourcePaths);
-      if (path != null && resolved != null && _normalizePath(resolved) == _normalizePath(path)) {
+      final resolved = const FaceDatabaseService().resolveStoredPath(
+        face,
+        sourcePaths,
+      );
+      if (path != null &&
+          resolved != null &&
+          _normalizePath(resolved) == _normalizePath(path)) {
         stored = face;
         break;
       }
@@ -1067,20 +1087,48 @@ class _HomePageState extends State<HomePage> {
       final bytes = await File(path).readAsBytes();
       final decoded = img.decodeImage(bytes);
       if (decoded == null) return null;
-      final scale = (decoded.width > decoded.height
-              ? decoded.width
-              : decoded.height) > 1600
-          ? ((decoded.width > decoded.height ? decoded.width : decoded.height) / 1600.0)
+      final scale =
+          (decoded.width > decoded.height ? decoded.width : decoded.height) >
+              1600
+          ? ((decoded.width > decoded.height ? decoded.width : decoded.height) /
+                1600.0)
           : 1.0;
-      final pad = (stored.width > stored.height ? stored.width : stored.height) * 0.35;
-      final left = (stored.left * scale - pad).round().clamp(0, decoded.width - 1);
-      final top = (stored.top * scale - pad).round().clamp(0, decoded.height - 1);
-      final right = ((stored.left + stored.width) * scale + pad).round().clamp(left + 1, decoded.width);
-      final bottom = ((stored.top + stored.height) * scale + pad).round().clamp(top + 1, decoded.height);
-      final crop = img.copyCrop(decoded, x: left, y: top, width: right-left, height: bottom-top);
-      final tempDir = await Directory.systemTemp.createTemp('archino_face_preview_');
+      final pad =
+          (stored.width > stored.height ? stored.width : stored.height) * 0.35;
+      final left = (stored.left * scale - pad).round().clamp(
+        0,
+        decoded.width - 1,
+      );
+      final top = (stored.top * scale - pad).round().clamp(
+        0,
+        decoded.height - 1,
+      );
+      final right = ((stored.left + stored.width) * scale + pad).round().clamp(
+        left + 1,
+        decoded.width,
+      );
+      final bottom = ((stored.top + stored.height) * scale + pad).round().clamp(
+        top + 1,
+        decoded.height,
+      );
+      final crop = img.copyCrop(
+        decoded,
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top,
+      );
+      final tempDir = await Directory.systemTemp.createTemp(
+        'archino_face_preview_',
+      );
       final out = File(p.join(tempDir.path, '${person.id.hashCode}.jpg'));
-      await out.writeAsBytes(img.encodeJpg(img.copyResize(crop, width: 240, height: 240), quality: 85), flush: true);
+      await out.writeAsBytes(
+        img.encodeJpg(
+          img.copyResize(crop, width: 240, height: 240),
+          quality: 85,
+        ),
+        flush: true,
+      );
       return out;
     } catch (_) {
       return null;
@@ -1112,8 +1160,12 @@ class _HomePageState extends State<HomePage> {
     final selected = _selectedFacePersonId;
     if (selected == null) return null;
     for (final suggestion in _faceMergeSuggestions) {
-      if (_dismissedFaceMergeSuggestions.contains(_mergeSuggestionKey(suggestion))) continue;
-      if (suggestion.firstPersonId == selected || suggestion.secondPersonId == selected) {
+      if (_dismissedFaceMergeSuggestions.contains(
+        _mergeSuggestionKey(suggestion),
+      ))
+        continue;
+      if (suggestion.firstPersonId == selected ||
+          suggestion.secondPersonId == selected) {
         return suggestion;
       }
     }
@@ -1171,45 +1223,70 @@ class _HomePageState extends State<HomePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [
-              const Icon(FluentIcons.lightbulb, size: 18),
-              const SizedBox(width: 8),
-              Expanded(child: Text(
-                'پیشنهاد ادغام (${(suggestion.similarity * 100).round()}٪ شباهت) — آیا هر دو تصویر متعلق به یک شخص هستند؟',
-                style: FluentTheme.of(context).typography.bodyStrong,
-              )),
-            ]),
+            Row(
+              children: [
+                const Icon(FluentIcons.lightbulb, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'پیشنهاد ادغام (${(suggestion.similarity * 100).round()}٪ شباهت) — آیا هر دو تصویر متعلق به یک شخص هستند؟',
+                    style: FluentTheme.of(context).typography.bodyStrong,
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 10),
-            Row(children: [
-              Expanded(child: Column(children: [
-                _personFacePreview(selected),
-                const SizedBox(height: 5),
-                Text(selected.name, textAlign: TextAlign.center,
-                    maxLines: 2, overflow: TextOverflow.ellipsis),
-              ])),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 12),
-                child: Icon(FluentIcons.arrow_tall_down_left, size: 22),
-              ),
-              Expanded(child: Column(children: [
-                _personFacePreview(other),
-                const SizedBox(height: 5),
-                Text(other.name, textAlign: TextAlign.center,
-                    maxLines: 2, overflow: TextOverflow.ellipsis),
-              ])),
-            ]),
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    children: [
+                      _personFacePreview(selected),
+                      const SizedBox(height: 5),
+                      Text(
+                        selected.name,
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  child: Icon(FluentIcons.arrow_tall_down_left, size: 22),
+                ),
+                Expanded(
+                  child: Column(
+                    children: [
+                      _personFacePreview(other),
+                      const SizedBox(height: 5),
+                      Text(
+                        other.name,
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 10),
-            Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-              Button(
-                onPressed: () => _handleMergeSuggestion(false),
-                child: const Text('خیر، پیشنهاد بعدی'),
-              ),
-              const SizedBox(width: 8),
-              FilledButton(
-                onPressed: () => _handleMergeSuggestion(true),
-                child: const Text('بله، ادغام'),
-              ),
-            ]),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                Button(
+                  onPressed: () => _handleMergeSuggestion(false),
+                  child: const Text('خیر، پیشنهاد بعدی'),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: () => _handleMergeSuggestion(true),
+                  child: const Text('بله، ادغام'),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -1221,6 +1298,8 @@ class _HomePageState extends State<HomePage> {
     return Shortcuts(
       shortcuts: <ShortcutActivator, Intent>{
         const SingleActivator(LogicalKeyboardKey.keyS, control: true):
+            const _SaveProjectIntent(),
+        const SingleActivator(LogicalKeyboardKey.keyS, meta: true):
             const _SaveProjectIntent(),
       },
       child: Actions(
@@ -1235,354 +1314,374 @@ class _HomePageState extends State<HomePage> {
         child: Focus(
           autofocus: true,
           child: NavigationView(
-      content: ScaffoldPage(
-        header: PageHeader(
-          title: const Text("آرشینو - مدیریت تصاویر"),
-          commandBar: AppMenu(
-            onNewProject: _newProject,
-            onOpenProject: _openProject,
-            onSaveProject: _saveProject,
-            onSaveProjectAs: _saveProjectAs,
-            onResumeOperations: _resumePendingOperations,
-            onImportArchive: _importArchiveFromDisk,
-            onShowStatistics: _showStatistics,
-          ),
-        ),
-        content: Column(
-          children: [
-            FolderSelector(
-              paths: sourcePaths,
-              onAdd: addSourceFolder,
-              onRemove: removeSourceFolder,
-              onScan: scanSourceFolders,
-            ),
-            const SizedBox(height: 12),
-
-            Expanded(
-              child: Row(
+            content: ScaffoldPage(
+              header: PageHeader(
+                title: const Text("آرشینو - مدیریت تصاویر"),
+                commandBar: AppMenu(
+                  onNewProject: _newProject,
+                  onOpenProject: _openProject,
+                  onSaveProject: _saveProject,
+                  onSaveProjectAs: _saveProjectAs,
+                  onResumeOperations: _resumePendingOperations,
+                  onImportArchive: _importArchiveFromDisk,
+                  onShowStatistics: _showStatistics,
+                ),
+              ),
+              content: Column(
                 children: [
-                  SizedBox(
-                    width: 350,
-                    child: TimelineGroupCard(
-                      groups: groups,
-                      selectedGroup: selectedGroup,
-                      onResetTimeline: () {
-                        resetTimeline();
-                      },
-
-                      onGroupSelected: (group) {
-                        setState(() {
-                          selectedGroup = group;
-                          _selectedFacePersonId = null;
-                          _selectedTransferPaths.clear();
-                        });
-                      },
-
-                      onGroupUpdated: (group) {
-                        setState(() {
-                          _categoryCatalogPaths = _uniqueCategoryPaths([
-                            ..._categoryCatalogPaths,
-                            ...group.categories,
-                          ]);
-                        });
-                        _scheduleProjectSave();
-                      },
-
-                      onReprocessRequested: () {
-                        // مهم: وقتی زمان تغییر کرد
-                        reassignGroups();
-                      },
-
-                      onAnalyzeGroupRequested: _analyzeSingleGroupDuplicates,
-                      onAnalyzeGroupFacesRequested: _analyzeGroupFacesOnly,
-
-                      onGroupsMerged: (selectedGroups) {
-                        mergeGroups(selectedGroups);
-                      },
-                      onSuggestCategories: _suggestCategoriesFromTitles,
-                      availableCategoryPaths: _categoryCatalogPaths,
-                    ),
+                  FolderSelector(
+                    paths: sourcePaths,
+                    onAdd: addSourceFolder,
+                    onRemove: removeSourceFolder,
+                    onScan: scanSourceFolders,
                   ),
-
-                  const SizedBox(width: 12),
+                  const SizedBox(height: 12),
 
                   Expanded(
-                    flex: 2,
-                    child: Column(
+                    child: Row(
                       children: [
-                        if (_selectedFacePersonId != null && _activePersonMergeSuggestion != null)
-                          _buildActiveMergeSuggestionCard(_activePersonMergeSuggestion!),
-                        Expanded(
-                          child: MediaGrid(
-                            items: _selectedFacePersonId != null
-                                ? _buildFaceGridItems()
-                                : buildGridItems(),
-                            selectedPaths: _selectedTransferPaths,
-                            onSelectForTransfer: _toggleTransferSelection,
-                            onTransferSelected: _transferSelectedToGroup,
-                            onClearTransferSelection: () => setState(_selectedTransferPaths.clear),
-                            selectedPersonId: _selectedFacePersonId,
-                            onFaceSelected: _selectFacePerson,
-                            faceNameResolver: _facePersonName,
-                            faceDatabase: _faceDatabase,
-                            onFaceAssignmentRejected: _rejectFaceAssignment,
-                            onFaceRejectionCleared: _clearFaceRejection,
-                            onChanged: () {
-                              setState(() {});
+                        SizedBox(
+                          width: 350,
+                          child: TimelineGroupCard(
+                            groups: groups,
+                            selectedGroup: selectedGroup,
+                            onResetTimeline: () {
+                              resetTimeline();
+                            },
+
+                            onGroupSelected: (group) {
+                              setState(() {
+                                selectedGroup = group;
+                                _selectedFacePersonId = null;
+                                _selectedTransferPaths.clear();
+                              });
+                            },
+
+                            onGroupUpdated: (group) {
+                              setState(() {
+                                _categoryCatalogPaths = _uniqueCategoryPaths([
+                                  ..._categoryCatalogPaths,
+                                  ...group.categories,
+                                ]);
+                              });
                               _scheduleProjectSave();
                             },
+
+                            onReprocessRequested: () {
+                              // مهم: وقتی زمان تغییر کرد
+                              reassignGroups();
+                            },
+
+                            onAnalyzeGroupRequested:
+                                _analyzeSingleGroupDuplicates,
+                            onAnalyzeGroupFacesRequested:
+                                _analyzeGroupFacesOnly,
+
+                            onGroupsMerged: (selectedGroups) {
+                              mergeGroups(selectedGroups);
+                            },
+                            onSuggestCategories: _suggestCategoriesFromTitles,
+                            availableCategoryPaths: _categoryCatalogPaths,
+                          ),
+                        ),
+
+                        const SizedBox(width: 12),
+
+                        Expanded(
+                          flex: 2,
+                          child: Column(
+                            children: [
+                              if (_selectedFacePersonId != null &&
+                                  _activePersonMergeSuggestion != null)
+                                _buildActiveMergeSuggestionCard(
+                                  _activePersonMergeSuggestion!,
+                                ),
+                              Expanded(
+                                child: MediaGrid(
+                                  items: _selectedFacePersonId != null
+                                      ? _buildFaceGridItems()
+                                      : buildGridItems(),
+                                  selectedPaths: _selectedTransferPaths,
+                                  onSelectForTransfer: _toggleTransferSelection,
+                                  onTransferSelected: _transferSelectedToGroup,
+                                  onClearTransferSelection: () =>
+                                      setState(_selectedTransferPaths.clear),
+                                  selectedPersonId: _selectedFacePersonId,
+                                  onFaceSelected: _selectFacePerson,
+                                  faceNameResolver: _facePersonName,
+                                  faceDatabase: _faceDatabase,
+                                  onFaceAssignmentRejected:
+                                      _rejectFaceAssignment,
+                                  onFaceRejectionCleared: _clearFaceRejection,
+                                  onChanged: () {
+                                    setState(() {});
+                                    _scheduleProjectSave();
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(width: 12),
+
+                        SizedBox(
+                          width: 350,
+                          child: TabView(
+                            currentIndex: _rightPanelTab,
+                            onChanged: (index) {
+                              setState(() {
+                                _rightPanelTab = index;
+                                if (index != 1) {
+                                  _selectedFacePersonId = null;
+                                }
+                              });
+                            },
+                            closeButtonVisibility:
+                                CloseButtonVisibilityMode.never,
+                            showScrollButtons: false,
+                            tabs: [
+                              Tab(
+                                icon: const Icon(FluentIcons.copy, size: 14),
+                                text: const Text('پشت‌سرهم'),
+                                body: DuplicateGroupCard(
+                                  groups: duplicateGroups,
+                                  onGroupTap: _openDuplicateGroup,
+                                ),
+                              ),
+                              Tab(
+                                icon: const Icon(FluentIcons.contact, size: 14),
+                                text: const Text('افراد'),
+                                body: FacePeoplePanel(
+                                  database: _faceDatabase,
+                                  sourceRoots: sourcePaths,
+                                  selectedPersonId: _selectedFacePersonId,
+                                  onPersonSelected: _selectFacePerson,
+                                  onRename: _renameFacePerson,
+                                  onMerge: _mergeFacePersons,
+                                  suggestions: _faceMergeSuggestions
+                                      .where(
+                                        (s) => !_dismissedFaceMergeSuggestions
+                                            .contains(_mergeSuggestionKey(s)),
+                                      )
+                                      .toList(growable: false),
+                                  onDismissSuggestion:
+                                      _dismissFaceMergeSuggestion,
+                                  onSearchByImage: _searchFaceByImage,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
                   ),
 
-                  const SizedBox(width: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ApplyBar(
+                          onApply: () async {
+                            final ApplySettings? settings =
+                                await showDialog<ApplySettings>(
+                                  context: context,
+                                  builder: (_) => TransferDialog(
+                                    groupCount: groups.length,
+                                    selectedFiles: totalSelectedFiles,
+                                    selectedBytes: totalSelectedBytes,
+                                    totalFiles: mediaItems.length,
+                                    statistics: StatisticsSnapshot.from(
+                                      items: mediaItems,
+                                      groups: groups,
+                                      duplicateGroups: duplicateGroups,
+                                    ),
+                                  ),
+                                );
 
-                  SizedBox(
-                    width: 350,
-                    child: TabView(
-                      currentIndex: _rightPanelTab,
-                      onChanged: (index) {
-                        setState(() {
-                          _rightPanelTab = index;
-                          if (index != 1) {
-                            _selectedFacePersonId = null;
-                          }
-                        });
-                      },
-                      closeButtonVisibility: CloseButtonVisibilityMode.never,
-                      showScrollButtons: false,
-                      tabs: [
-                        Tab(
-                          icon: const Icon(FluentIcons.copy, size: 14),
-                          text: const Text('پشت‌سرهم'),
-                          body: DuplicateGroupCard(
-                            groups: duplicateGroups,
-                            onGroupTap: _openDuplicateGroup,
-                          ),
+                            if (settings == null) {
+                              return;
+                            }
+
+                            if (_projectPath == null) {
+                              await _saveProjectAs();
+                              if (_projectPath == null) {
+                                return;
+                              }
+                            }
+
+                            final transferService = TransferService();
+
+                            try {
+                              if (mounted) {
+                                setState(() {
+                                  progress = const AnalysisProgress(
+                                    stage: AnalysisStage.finished,
+                                    current: 0,
+                                    total: 0,
+                                    message: 'در حال آماده‌سازی انتقال...',
+                                  );
+                                });
+                              }
+
+                              final project = _ensureProject();
+                              project.applySettings = settings;
+
+                              // ابتدا مقصد همه فایل‌ها در پروژه ثبت می‌شود.
+                              // بنابراین حتی اگر قبل از اولین انتقال برق برود،
+                              // مقصد عملیات بعد از اجرای بعدی مشخص است.
+                              await transferService.prepareOperations(
+                                groups: groups,
+                                duplicateGroups: duplicateGroups,
+                                settings: settings,
+                                operations: project.operations,
+                              );
+
+                              await _enqueueProjectSave();
+
+                              final transferResults = await transferService
+                                  .execute(
+                                    groups: groups,
+                                    duplicateGroups: duplicateGroups,
+                                    settings: settings,
+                                    operations: project.operations,
+                                    sourceRoots: sourcePaths,
+                                    faceDatabaseDirectory:
+                                        _getFaceDatabaseDirectory(),
+                                    onItemTransferred: (result) {
+                                      if (!mounted) return;
+                                      setState(() {});
+                                      _scheduleProjectSave();
+                                    },
+                                    onOperationChanged: (operation) {
+                                      if (operation.status ==
+                                              ProjectOperationStatus
+                                                  .completed ||
+                                          operation.status ==
+                                              ProjectOperationStatus.failed) {
+                                        _scheduleProjectSave();
+                                      }
+                                    },
+                                    onProgress: (p) {
+                                      if (!mounted) return;
+
+                                      setState(() {
+                                        progress = AnalysisProgress(
+                                          stage: AnalysisStage.finished,
+                                          current: p.current,
+                                          total: p.total,
+                                          message:
+                                              'در حال انتقال ${p.fileName}',
+                                        );
+                                      });
+                                    },
+                                  );
+
+                              await const PortableProjectDatabaseService()
+                                  .syncToRoot(
+                                    root: settings.outputFolder,
+                                    workingDatabase: _faceDatabase,
+                                    transferredItems: transferResults
+                                        .map((result) => result.item)
+                                        .toList(),
+                                    categoryPaths: _uniqueCategoryPaths([
+                                      ..._categoryCatalogPaths,
+                                      ..._categoryPathsFromGroups(),
+                                    ]),
+                                    learningModel: CategoryLearningService()
+                                        .merge(
+                                          _categoryLearningModel,
+                                          CategoryLearningService().rebuild(
+                                            groups,
+                                          ),
+                                        ),
+                                    duplicateGroups: duplicateGroups,
+                                    analyzedItems: transferResults
+                                        .map((result) => result.item)
+                                        .toList(),
+                                  );
+
+                              await _enqueueProjectSave();
+
+                              if (!mounted) return;
+
+                              setState(() {
+                                _categoryCatalogPaths = _uniqueCategoryPaths([
+                                  ..._categoryCatalogPaths,
+                                  ..._categoryPathsFromGroups(),
+                                ]);
+                                progress = null;
+                                _faceDatabaseDirty = false;
+                                _portableArchiveRoot = settings.outputFolder;
+                              });
+                            } catch (e, stackTrace) {
+                              debugPrint('Transfer error: $e');
+                              debugPrintStack(stackTrace: stackTrace);
+
+                              await _enqueueProjectSave();
+
+                              if (!mounted) return;
+
+                              setState(() {
+                                progress = null;
+                              });
+
+                              await displayInfoBar(
+                                context,
+                                builder: (context, close) {
+                                  return InfoBar(
+                                    title: const Text('خطا در انتقال فایل'),
+                                    content: Text(e.toString()),
+                                    severity: InfoBarSeverity.error,
+                                    onClose: close,
+                                  );
+                                },
+                              );
+                            }
+                          },
+                          mediaItems_length: mediaItems.length,
+                          progress: progress,
+                          onPause: pauseAnalyze,
+                          onResume: resumeAnalyze,
+                          onCancel: cancelAnalyze,
                         ),
-                        Tab(
-                          icon: const Icon(FluentIcons.contact, size: 14),
-                          text: const Text('افراد'),
-                          body: FacePeoplePanel(
-                            database: _faceDatabase,
-                            sourceRoots: sourcePaths,
-                            selectedPersonId: _selectedFacePersonId,
-                            onPersonSelected: _selectFacePerson,
-                            onRename: _renameFacePerson,
-                            onMerge: _mergeFacePersons,
-                            suggestions: _faceMergeSuggestions
-                                .where((s) => !_dismissedFaceMergeSuggestions
-                                    .contains(_mergeSuggestionKey(s)))
-                                .toList(growable: false),
-                            onDismissSuggestion: _dismissFaceMergeSuggestion,
-                            onSearchByImage: _searchFaceByImage,
-                          ),
+                      ),
+
+                      Button(
+                        onPressed: mediaItems.isEmpty || engine.isRunning
+                            ? null
+                            : _analyzeFacesOnly,
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(FluentIcons.contact, size: 16),
+                            SizedBox(width: 8),
+                            Text('تشخیص چهره'),
+                          ],
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(width: 8),
+
+                      Button(
+                        onPressed:
+                            groups.any((group) => group.edited) ||
+                                _faceDatabaseDirty
+                            ? _saveMetadataOnly
+                            : null,
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(FluentIcons.save, size: 16),
+                            SizedBox(width: 8),
+                            Text('ذخیره اطلاعات'),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
                   ),
                 ],
               ),
             ),
-
-            Row(
-              children: [
-                Expanded(
-                  child: ApplyBar(
-                    onApply: () async {
-                      final ApplySettings? settings =
-                          await showDialog<ApplySettings>(
-                            context: context,
-                            builder: (_) => TransferDialog(
-                              groupCount: groups.length,
-                              selectedFiles: totalSelectedFiles,
-                              selectedBytes: totalSelectedBytes,
-                              totalFiles: mediaItems.length,
-                              statistics: StatisticsSnapshot.from(
-                                items: mediaItems,
-                                groups: groups,
-                                duplicateGroups: duplicateGroups,
-                              ),
-                            ),
-                          );
-
-                      if (settings == null) {
-                        return;
-                      }
-
-                      if (_projectPath == null) {
-                        await _saveProjectAs();
-                        if (_projectPath == null) {
-                          return;
-                        }
-                      }
-
-                      final transferService = TransferService();
-
-                      try {
-                        if (mounted) {
-                          setState(() {
-                            progress = const AnalysisProgress(
-                              stage: AnalysisStage.finished,
-                              current: 0,
-                              total: 0,
-                              message: 'در حال آماده‌سازی انتقال...',
-                            );
-                          });
-                        }
-
-                        final project = _ensureProject();
-                        project.applySettings = settings;
-
-                        // ابتدا مقصد همه فایل‌ها در پروژه ثبت می‌شود.
-                        // بنابراین حتی اگر قبل از اولین انتقال برق برود،
-                        // مقصد عملیات بعد از اجرای بعدی مشخص است.
-                        await transferService.prepareOperations(
-                          groups: groups,
-                          duplicateGroups: duplicateGroups,
-                          settings: settings,
-                          operations: project.operations,
-                        );
-
-                        await _enqueueProjectSave();
-
-                        final transferResults = await transferService.execute(
-                          groups: groups,
-                          duplicateGroups: duplicateGroups,
-                          settings: settings,
-                          operations: project.operations,
-                          sourceRoots: sourcePaths,
-                          faceDatabaseDirectory: _getFaceDatabaseDirectory(),
-                          onItemTransferred: (result) {
-                            if (!mounted) return;
-                            setState(() {});
-                            _scheduleProjectSave();
-                          },
-                          onOperationChanged: (operation) {
-                            if (operation.status ==
-                                    ProjectOperationStatus.completed ||
-                                operation.status ==
-                                    ProjectOperationStatus.failed) {
-                              _scheduleProjectSave();
-                            }
-                          },
-                          onProgress: (p) {
-                            if (!mounted) return;
-
-                            setState(() {
-                              progress = AnalysisProgress(
-                                stage: AnalysisStage.finished,
-                                current: p.current,
-                                total: p.total,
-                                message: 'در حال انتقال ${p.fileName}',
-                              );
-                            });
-                          },
-                        );
-
-                        await const PortableProjectDatabaseService().syncToRoot(
-                          root: settings.outputFolder,
-                          workingDatabase: _faceDatabase,
-                          transferredItems: transferResults
-                              .map((result) => result.item)
-                              .toList(),
-                          categoryPaths: _uniqueCategoryPaths([
-                            ..._categoryCatalogPaths,
-                            ..._categoryPathsFromGroups(),
-                          ]),
-                          learningModel: CategoryLearningService().merge(
-                            _categoryLearningModel,
-                            CategoryLearningService().rebuild(groups),
-                          ),
-                          duplicateGroups: duplicateGroups,
-                          analyzedItems: transferResults
-                              .map((result) => result.item)
-                              .toList(),
-                        );
-
-                        await _enqueueProjectSave();
-
-                        if (!mounted) return;
-
-                        setState(() {
-                          _categoryCatalogPaths = _uniqueCategoryPaths([
-                            ..._categoryCatalogPaths,
-                            ..._categoryPathsFromGroups(),
-                          ]);
-                          progress = null;
-                          _faceDatabaseDirty = false;
-                          _portableArchiveRoot = settings.outputFolder;
-                        });
-                      } catch (e, stackTrace) {
-                        debugPrint('Transfer error: $e');
-                        debugPrintStack(stackTrace: stackTrace);
-
-                        await _enqueueProjectSave();
-
-                        if (!mounted) return;
-
-                        setState(() {
-                          progress = null;
-                        });
-
-                        await displayInfoBar(
-                          context,
-                          builder: (context, close) {
-                            return InfoBar(
-                              title: const Text('خطا در انتقال فایل'),
-                              content: Text(e.toString()),
-                              severity: InfoBarSeverity.error,
-                              onClose: close,
-                            );
-                          },
-                        );
-                      }
-                    },
-                    mediaItems_length: mediaItems.length,
-                    progress: progress,
-                    onPause: pauseAnalyze,
-                    onResume: resumeAnalyze,
-                    onCancel: cancelAnalyze,
-                  ),
-                ),
-
-                Button(
-                  onPressed: mediaItems.isEmpty || engine.isRunning
-                      ? null
-                      : _analyzeFacesOnly,
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(FluentIcons.contact, size: 16),
-                      SizedBox(width: 8),
-                      Text('تشخیص چهره'),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-
-                Button(
-                  onPressed:
-                      groups.any((group) => group.edited) || _faceDatabaseDirty
-                      ? _saveMetadataOnly
-                      : null,
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(FluentIcons.save, size: 16),
-                      SizedBox(width: 8),
-                      Text('ذخیره اطلاعات'),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-              ],
-            ),
-          ],
-        ),
-      ),
           ),
         ),
       ),
@@ -1658,7 +1757,9 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _saveInformationToPortableArchive({List<MediaItem> transferredItems = const []}) async {
+  Future<void> _saveInformationToPortableArchive({
+    List<MediaItem> transferredItems = const [],
+  }) async {
     var root = _portableArchiveRoot;
 
     if (root == null || root.trim().isEmpty) {
@@ -1769,9 +1870,9 @@ class _HomePageState extends State<HomePage> {
           final lowerItem = normalizedItem.toLowerCase();
           final lowerOld = normalizedOld.toLowerCase();
 
-          if (lowerItem == lowerOld ||
-              lowerItem.startsWith('$lowerOld/')) {
-            final relative = normalizedItem.substring(normalizedOld.length)
+          if (lowerItem == lowerOld || lowerItem.startsWith('$lowerOld/')) {
+            final relative = normalizedItem
+                .substring(normalizedOld.length)
                 .replaceFirst(RegExp(r'^[/\\]+'), '');
             item.updatePath(p.join(targetPath, relative));
             renamedItems.add(item);
@@ -1802,11 +1903,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _saveMetadataOnly() async {
     final editedGroups = groups
-        .where(
-          (group) =>
-              group.edited ||
-              group.metadata?.groupDate != null,
-        )
+        .where((group) => group.edited || group.metadata?.groupDate != null)
         .toList();
 
     final renamedItems = await _renameEditedGroupFolders(editedGroups);
@@ -1814,9 +1911,7 @@ class _HomePageState extends State<HomePage> {
     final hasFaceChanges = _faceDatabaseDirty;
 
     if (hasFaceChanges || renamedItems.isNotEmpty) {
-      await _saveInformationToPortableArchive(
-        transferredItems: renamedItems,
-      );
+      await _saveInformationToPortableArchive(transferredItems: renamedItems);
     }
 
     final groupsToSave = groups
@@ -1874,9 +1969,7 @@ class _HomePageState extends State<HomePage> {
 
       if (renamedItems.isNotEmpty) {
         // بعد از Rename، مسیرهای جدید در دیتابیس قابل‌حمل نیز ثبت شوند.
-        await _saveInformationToPortableArchive(
-          transferredItems: renamedItems,
-        );
+        await _saveInformationToPortableArchive(transferredItems: renamedItems);
       }
 
       if (!mounted) return;
@@ -1927,11 +2020,10 @@ class _HomePageState extends State<HomePage> {
       PageRouteBuilder<void>(
         opaque: true,
         barrierDismissible: false,
-        pageBuilder: (_, __, ___) => StatisticsPage(stats: snapshot),
+        pageBuilder: (_, _, _) => StatisticsPage(stats: snapshot),
       ),
     );
   }
-
 
   int get totalSelectedFiles {
     final selectedDuplicateFiles = <String>{};
@@ -2174,7 +2266,10 @@ class _HomePageState extends State<HomePage> {
             FilledButton(
               child: const Text('شروع تحلیل'),
               onPressed: values.values.any((v) => v)
-                  ? () => Navigator.pop(dialogContext, Map<String, bool>.from(values))
+                  ? () => Navigator.pop(
+                      dialogContext,
+                      Map<String, bool>.from(values),
+                    )
                   : null,
             ),
           ],
@@ -2370,12 +2465,14 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _analyzeGroupFacesOnly(TimelineGroup group) async {
     if (engine.isRunning || group.items.isEmpty) return;
-    setState(() => progress = const AnalysisProgress(
-      stage: AnalysisStage.faces,
-      current: 0,
-      total: 0,
-      message: 'در حال تشخیص چهره‌های این گروه...',
-    ));
+    setState(
+      () => progress = const AnalysisProgress(
+        stage: AnalysisStage.faces,
+        current: 0,
+        total: 0,
+        message: 'در حال تشخیص چهره‌های این گروه...',
+      ),
+    );
     try {
       await engine.detectFaces(
         sourceRoots: sourcePaths,
@@ -2394,7 +2491,9 @@ class _HomePageState extends State<HomePage> {
         context,
         builder: (context, close) => InfoBar(
           title: const Text('تشخیص چهره گروه پایان یافت'),
-          content: Text('تعداد تصاویر گروه: ${group.items.length}. چهره‌های جدید به پایگاه چهره‌های کلی اضافه شدند.'),
+          content: Text(
+            'تعداد تصاویر گروه: ${group.items.length}. چهره‌های جدید به پایگاه چهره‌های کلی اضافه شدند.',
+          ),
           severity: InfoBarSeverity.success,
           onClose: close,
         ),
@@ -2613,8 +2712,8 @@ class _HomePageState extends State<HomePage> {
       project.mediaItems = mediaItems;
       project.groups = groups;
       project.duplicateGroups = duplicateGroups;
-    project.faceDatabase = _faceDatabase.toJson();
-    project.categoryLearning = _categoryLearningModel.toJson();
+      project.faceDatabase = _faceDatabase.toJson();
+      project.categoryLearning = _categoryLearningModel.toJson();
       project.analysisCompleted = true;
 
       await _enqueueProjectSave();
@@ -2651,7 +2750,9 @@ class _HomePageState extends State<HomePage> {
   void _toggleTransferSelection(List<MediaItem> clickedItems) {
     if (clickedItems.isEmpty) return;
     setState(() {
-      final keys = clickedItems.map((item) => _transferPathKey(item.path)).toSet();
+      final keys = clickedItems
+          .map((item) => _transferPathKey(item.path))
+          .toSet();
       final allSelected = keys.every(_selectedTransferPaths.contains);
       if (allSelected) {
         _selectedTransferPaths.removeAll(keys);
@@ -2689,12 +2790,20 @@ class _HomePageState extends State<HomePage> {
                     final group = groups[index];
                     return Button(
                       onPressed: () => Navigator.pop(dialogContext, group),
-                      child: Row(children: [
-                        const Icon(FluentIcons.calendar),
-                        const SizedBox(width: 8),
-                        Expanded(child: Text(group.title, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                        Text('${group.items.length} فایل'),
-                      ]),
+                      child: Row(
+                        children: [
+                          const Icon(FluentIcons.calendar),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              group.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Text('${group.items.length} فایل'),
+                        ],
+                      ),
                     );
                   },
                 ),
@@ -2703,9 +2812,13 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
         actions: [
-          Button(onPressed: () => Navigator.pop(dialogContext), child: const Text('انصراف')),
+          Button(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('انصراف'),
+          ),
           FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, '__create_new_group__'),
+            onPressed: () =>
+                Navigator.pop(dialogContext, '__create_new_group__'),
             child: const Text('ساخت گروه زمانی جدید…'),
           ),
         ],
@@ -2724,8 +2837,15 @@ class _HomePageState extends State<HomePage> {
           title: const Text('ساخت گروه زمانی'),
           content: TextBox(controller: nameController, placeholder: 'نام گروه'),
           actions: [
-            Button(onPressed: () => Navigator.pop(dialogContext), child: const Text('انصراف')),
-            FilledButton(onPressed: () => Navigator.pop(dialogContext, nameController.text.trim()), child: const Text('ساخت و انتقال')),
+            Button(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('انصراف'),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.pop(dialogContext, nameController.text.trim()),
+              child: const Text('ساخت و انتقال'),
+            ),
           ],
         ),
       );
@@ -2747,10 +2867,15 @@ class _HomePageState extends State<HomePage> {
     final selectedKeys = selected.keys.toSet();
     setState(() {
       for (final group in groups) {
-        group.items.removeWhere((item) => selectedKeys.contains(_transferPathKey(item.path)));
+        group.items.removeWhere(
+          (item) => selectedKeys.contains(_transferPathKey(item.path)),
+        );
       }
       for (final item in selected.values) {
-        if (!target!.items.any((existing) => _transferPathKey(existing.path) == _transferPathKey(item.path))) {
+        if (!target!.items.any(
+          (existing) =>
+              _transferPathKey(existing.path) == _transferPathKey(item.path),
+        )) {
           target!.items.add(item);
         }
       }
@@ -2760,12 +2885,17 @@ class _HomePageState extends State<HomePage> {
     });
     _scheduleProjectSave();
     if (mounted) {
-      await displayInfoBar(context, builder: (context, close) => InfoBar(
-        title: const Text('انتقال انجام شد'),
-        content: Text('${selected.length} فایل به «${target!.title}» منتقل شد.'),
-        severity: InfoBarSeverity.success,
-        onClose: close,
-      ));
+      await displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          title: const Text('انتقال انجام شد'),
+          content: Text(
+            '${selected.length} فایل به «${target!.title}» منتقل شد.',
+          ),
+          severity: InfoBarSeverity.success,
+          onClose: close,
+        ),
+      );
     }
   }
 
@@ -2900,8 +3030,27 @@ class _HomePageState extends State<HomePage> {
     final mergedItems = mergedItemsMap.values.toList();
 
     // 6. ساخت گروه جدید
+    // نام دستی/غیرپیش‌فرض را حفظ کن؛ فقط اگر همه نام‌ها پیش‌فرض باشند
+    // از عنوان یکی از گروه‌ها استفاده می‌کنیم، نه عنوان عمومی Merged.
+    bool isDefaultGroupTitle(String title) {
+      final value = title.trim().toLowerCase();
+      return value.isEmpty ||
+          value == 'merged' ||
+          value.startsWith('merged (') ||
+          value.startsWith('گروه ') ||
+          value.startsWith('گروه زمانی ');
+    }
+
+    final preferredGroup = selectedGroups.firstWhere(
+      (group) => !isDefaultGroupTitle(group.title),
+      orElse: () => selectedGroups.first,
+    );
+    final mergedTitle = preferredGroup.title.trim().isEmpty
+        ? 'گروه زمانی ${minStart.year}'
+        : preferredGroup.title;
+
     final mergedGroup = TimelineGroup(
-      title: 'Merged (${selectedGroups.length})',
+      title: mergedTitle,
       start: minStart,
       end: maxEnd,
       items: mergedItems,
@@ -2960,15 +3109,17 @@ class _HomePageState extends State<HomePage> {
   Future<void> _saveCurrentProjectNow() async {
     _syncProjectState();
 
-    final targetPath = _projectPath ??
-        await ProjectRepository.recoveryProjectPath();
+    final targetPath =
+        _projectPath ?? await ProjectRepository.recoveryProjectPath();
 
     // Recognition writes its working database incrementally. Embed that latest
     // disk snapshot in every project checkpoint, rather than the potentially
     // stale in-memory copy that is refreshed only after the analysis completes.
     try {
       final workingDirectory = _getFaceDatabaseDirectory();
-      final diskDatabase = await const FaceDatabaseService().load(workingDirectory);
+      final diskDatabase = await const FaceDatabaseService().load(
+        workingDirectory,
+      );
       if (diskDatabase.persons.isNotEmpty ||
           diskDatabase.faces.isNotEmpty ||
           diskDatabase.scans.isNotEmpty ||
@@ -2979,10 +3130,7 @@ class _HomePageState extends State<HomePage> {
       debugPrint('Could not embed face checkpoint: $e');
     }
 
-    await ProjectRepository.save(
-      path: targetPath,
-      project: _ensureProject(),
-    );
+    await ProjectRepository.save(path: targetPath, project: _ensureProject());
 
     // Do not delete working sidecars while analysis is running: face recognition
     // uses them as its durable incremental cache. Once it finishes, the embedded
@@ -3040,9 +3188,11 @@ class _HomePageState extends State<HomePage> {
 
     _saveTimer = Timer(const Duration(seconds: 3), () {
       _saveTimer = null;
-      unawaited(_enqueueProjectSave().catchError((Object e) {
-        debugPrint('Automatic checkpoint save error: $e');
-      }));
+      unawaited(
+        _enqueueProjectSave().catchError((Object e) {
+          debugPrint('Automatic checkpoint save error: $e');
+        }),
+      );
     });
   }
 
@@ -3197,13 +3347,15 @@ class _HomePageState extends State<HomePage> {
     try {
       final lastPath = await ProjectRepository.readLastProjectPath();
       final recoveryPath = await ProjectRepository.recoveryProjectPath();
-      final hasRecovery = await File(recoveryPath).exists() ||
+      final hasRecovery =
+          await File(recoveryPath).exists() ||
           await File('$recoveryPath.tmp').exists() ||
           await File('$recoveryPath.bak').exists();
 
       var hasLastProject = false;
       if (lastPath != null && lastPath.trim().isNotEmpty) {
-        hasLastProject = await File(lastPath).exists() ||
+        hasLastProject =
+            await File(lastPath).exists() ||
             await File('$lastPath.tmp').exists() ||
             await File('$lastPath.bak').exists();
       }

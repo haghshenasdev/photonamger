@@ -311,15 +311,18 @@ class _DuplicateStackTileState extends State<DuplicateStackTile> {
           // انتخاب صریح عکس برای انتقال
           // -------------------------------------------------------
           final isTransferSelected = widget.selectedPaths.any(
-            (path) => path.replaceAll('\\', '/').trim().toLowerCase() ==
+            (path) =>
+                path.replaceAll('\\', '/').trim().toLowerCase() ==
                 item.path.replaceAll('\\', '/').trim().toLowerCase(),
           );
           menuItems.add(
             MenuFlyoutItem(
               leading: const Icon(FluentIcons.checkbox_composite),
-              text: Text(isTransferSelected
-                  ? '   عکس ${index + 1}: لغو انتخاب برای انتقال'
-                  : '   عکس ${index + 1}: انتخاب برای انتقال'),
+              text: Text(
+                isTransferSelected
+                    ? '   عکس ${index + 1}: لغو انتخاب برای انتقال'
+                    : '   عکس ${index + 1}: انتخاب برای انتقال',
+              ),
               onPressed: () {
                 _flyoutController.close();
                 widget.onSelectForTransfer?.call([item]);
@@ -444,22 +447,36 @@ class _DuplicateStackTileState extends State<DuplicateStackTile> {
               // -----------------------------------------------------
               // لایه سوم
               // -----------------------------------------------------
+              // لایه‌های پشتی صرفاً تزئینی‌اند؛ فایل‌های گروه را بارگذاری
+              // نمی‌کنیم تا در گرید فقط تصویر منتخب decode شود.
               if (items.length > 2)
                 Positioned.fill(
                   child: Padding(
-                    padding: const EdgeInsets.only(left: 12, top: 12),
-                    child: _imageLayer(items[2], openPreviewOnTap: false),
+                    padding: const EdgeInsets.only(left: 10, top: 10),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: FluentTheme.of(
+                          context,
+                        ).accentColor.withOpacity(.18),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white, width: 2),
+                      ),
+                    ),
                   ),
                 ),
-
-              // -----------------------------------------------------
-              // لایه دوم
-              // -----------------------------------------------------
               if (items.length > 1)
                 Positioned.fill(
                   child: Padding(
-                    padding: const EdgeInsets.only(left: 6, top: 6),
-                    child: _imageLayer(items[1], openPreviewOnTap: false),
+                    padding: const EdgeInsets.only(left: 5, top: 5),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: FluentTheme.of(
+                          context,
+                        ).accentColor.withOpacity(.35),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white, width: 2),
+                      ),
+                    ),
                   ),
                 ),
 
@@ -476,7 +493,25 @@ class _DuplicateStackTileState extends State<DuplicateStackTile> {
               Positioned(
                 right: -6,
                 bottom: -6,
-                child: InfoBadge(source: Text('${items.length}')),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: FluentTheme.of(context).accentColor,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.white, width: 1.5),
+                  ),
+                  child: Text(
+                    '${items.length} عکس',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
               ),
 
               // -----------------------------------------------------
