@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:fgphoto/core/analysis/face_database.dart';
 import 'package:fgphoto/core/file_explorer_service.dart';
-import 'package:fgphoto/core/utils/persian_date.dart';
 import 'package:fgphoto/ui/models/duplicate_group.dart';
 import 'package:fgphoto/ui/models/media_item.dart';
 import 'package:fgphoto/ui/models/preview_item.dart';
@@ -486,30 +485,6 @@ class _DuplicateStackTileState extends State<DuplicateStackTile> {
               // -----------------------------------------------------
               Positioned.fill(
                 child: _imageLayer(selectedItem, openPreviewOnTap: true),
-              ),
-
-              // تاریخ شمسی تصویر انتخاب‌شده از گروه پشت‌سرهم
-              Positioned(
-                left: 3,
-                bottom: 3,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 5,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(.72),
-                    borderRadius: BorderRadius.circular(5),
-                  ),
-                  child: Text(
-                    PersianDate.formatDateTime(selectedItem.createdAt),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 8,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
               ),
 
               // -----------------------------------------------------
