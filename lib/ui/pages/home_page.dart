@@ -76,6 +76,7 @@ class _HomePageState extends State<HomePage> {
   List<DuplicateGroup> duplicateGroups = [];
   final Set<String> _selectedTransferPaths = <String>{};
   bool _gridNewestFirst = false;
+  bool _folderGroupingTimeline = false;
 
   FaceDatabase _faceDatabase = FaceDatabase();
   String? _faceDatabaseDirectory;
@@ -1345,6 +1346,7 @@ class _HomePageState extends State<HomePage> {
                           width: 350,
                           child: TimelineGroupCard(
                             groups: groups,
+                            folderGrouping: _folderGroupingTimeline,
                             selectedGroup: selectedGroup,
                             onResetTimeline: () {
                               resetTimeline();
@@ -2226,6 +2228,7 @@ class _HomePageState extends State<HomePage> {
   Future<Map<String, bool>?> _showAnalysisSettings() async {
     final values = <String, bool>{
       'timeline': true,
+      'folderGrouping': false,
       'faces': true,
       'bursts': true,
       'quality': true,
@@ -2243,7 +2246,8 @@ class _HomePageState extends State<HomePage> {
               const Text('مشخص کنید کدام پردازش‌ها اجرا شوند:'),
               const SizedBox(height: 8),
               for (final option in const <(String, String)>[
-                ('timeline', 'دسته‌بندی زمانی تصاویر'),
+                ('timeline', 'دسته‌بندی زمانی تصاویر بر اساس سال و ماه'),
+                ('folderGrouping', 'نمایش پوشه‌بندی‌ها در تایم‌لاین (در صورت غیرفعال بودن دسته‌بندی زمانی)'),
                 ('bursts', 'تشخیص تصاویر پشت‌سرهم و مشابه زمانی'),
                 ('faces', 'تشخیص و دسته‌بندی چهره‌ها'),
                 ('quality', 'امتیازدهی کیفیت و تاری تصاویر'),
@@ -2283,6 +2287,54 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  /// در حالت غیرفعال بودن دسته‌بندی زمانی، فایل‌ها را بر اساس پوشه واقعی
+  /// مرتب می‌کند تا تایم‌لاین بتواند مسیر پوشه‌ها را نمایش دهد.
+  List<TimelineGroup> _buildFolderTimelineGroups(List<MediaItem> items) {
+    final byDirectory = <String, List<MediaItem>>{};
+
+    for (final item in items) {
+      final directory = p.normalize(p.dirname(item.path));
+      final key = Platform.isWindows ? directory.toLowerCase() : directory;
+      byDirectory.putIfAbsent(key, () => <MediaItem>[]).add(item);
+    }
+
+    final directories = byDirectory.keys.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    final result = <TimelineGroup>[];
+    for (final key in directories) {
+      final folderItems = byDirectory[key]!
+        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      if (folderItems.isEmpty) continue;
+
+      final actualDirectory = p.dirname(folderItems.first.path);
+      MediaItem? metadataItem;
+      for (final item in folderItems) {
+        if (item.groupMetadata != null) {
+          metadataItem = item;
+          break;
+        }
+      }
+      final metadataDirectories = folderItems
+          .map((item) => item.metadataDirectory)
+          .whereType<String>()
+          .toSet();
+
+      result.add(
+        TimelineGroup(
+          title: actualDirectory,
+          start: folderItems.first.createdAt,
+          end: folderItems.last.createdAt,
+          items: List<MediaItem>.from(folderItems),
+          metadata: metadataItem?.groupMetadata,
+          metadataDirectory:
+              metadataDirectories.length == 1 ? metadataDirectories.first : null,
+        ),
+      );
+    }
+    return result;
+  }
+
   Future<void> scanSourceFolders() async {
     final analysisOptions = await _showAnalysisSettings();
     if (analysisOptions == null) return;
@@ -2312,8 +2364,11 @@ class _HomePageState extends State<HomePage> {
     //------------------------------------------------------
 
     final timelineBuilder = TimelineBuilder();
-
-    final generatedGroups = timelineBuilder.build(files);
+    final folderGrouping = !(analysisOptions['timeline'] ?? true) &&
+        (analysisOptions['folderGrouping'] ?? false);
+    final generatedGroups = folderGrouping
+        ? _buildFolderTimelineGroups(files)
+        : timelineBuilder.build(files);
 
     if (!mounted) {
       return;
@@ -2321,6 +2376,7 @@ class _HomePageState extends State<HomePage> {
 
     setState(() {
       mediaItems = files;
+      _folderGroupingTimeline = folderGrouping;
 
       groups = generatedGroups;
 
@@ -3456,6 +3512,12 @@ class _HomePageState extends State<HomePage> {
         sourcePaths = List<String>.from(project.sourcePaths);
         mediaItems = project.mediaItems;
         groups = project.groups;
+        _folderGroupingTimeline = project.groups.isNotEmpty &&
+            project.groups.every((group) =>
+                group.items.isNotEmpty &&
+                p.isAbsolute(group.title) &&
+                p.normalize(group.title) ==
+                    p.normalize(p.dirname(group.items.first.path)));
         duplicateGroups = project.duplicateGroups;
         selectedGroup = groups.isEmpty ? null : groups.first;
         progress = null;

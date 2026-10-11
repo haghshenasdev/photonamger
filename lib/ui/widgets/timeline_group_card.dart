@@ -62,6 +62,7 @@ String _persianMonthName(int month) {
 class TimelineGroupCard extends StatefulWidget {
   final List<TimelineGroup> groups;
   final TimelineGroup? selectedGroup;
+  final bool folderGrouping;
   final ValueChanged<TimelineGroup> onGroupSelected;
   final ValueChanged<TimelineGroup> onGroupUpdated;
   final VoidCallback onReprocessRequested;
@@ -76,6 +77,7 @@ class TimelineGroupCard extends StatefulWidget {
     super.key,
     required this.groups,
     required this.selectedGroup,
+    this.folderGrouping = false,
     required this.onGroupSelected,
     required this.onGroupUpdated,
     required this.onReprocessRequested,
@@ -490,6 +492,14 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
   List<_TimelineListEntry> _timelineEntries(List<TimelineGroup> filtered) {
     final grouped = <int, Map<int, List<int>>>{};
 
+    if (widget.folderGrouping) {
+      final indices = List<int>.generate(filtered.length, (i) => i);
+      indices.sort((a, b) => filtered[a].title.toLowerCase().compareTo(
+            filtered[b].title.toLowerCase(),
+          ));
+      return indices.map(_TimelineListEntry.group).toList();
+    }
+
     if (!_showYearMonthHeaders) {
       final indices = List<int>.generate(filtered.length, (i) => i);
       indices.sort((a, b) {
@@ -533,6 +543,35 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
     }
 
     return result;
+  }
+
+  void _toggleCollapseAllYears(List<TimelineGroup> groups) {
+    final years = <int>{};
+    final months = <String>{};
+    for (final group in groups) {
+      final date = group.metadata?.groupDate ?? group.start;
+      final jalali = Jalali.fromDateTime(date);
+      years.add(jalali.year);
+      months.add('${jalali.year}-${jalali.month}');
+    }
+
+    final allCollapsed = years.isNotEmpty &&
+        years.every(_collapsedYears.contains) &&
+        months.every(_collapsedMonths.contains);
+
+    setState(() {
+      if (allCollapsed) {
+        _collapsedYears.clear();
+        _collapsedMonths.clear();
+      } else {
+        _collapsedYears
+          ..clear()
+          ..addAll(years);
+        _collapsedMonths
+          ..clear()
+          ..addAll(months);
+      }
+    });
   }
 
   // ===========================================================================
@@ -755,17 +794,37 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
             padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
             child: Row(
               children: [
-                const Icon(FluentIcons.calendar, size: 14),
-                const SizedBox(width: 6),
-                const Expanded(child: Text('گروه‌بندی زمانی شمسی')),
-                ToggleSwitch(
-                  checked: _showYearMonthHeaders,
-                  onChanged: (value) => setState(() {
-                    _showYearMonthHeaders = value;
-                    _collapsedYears.clear();
-                    _collapsedMonths.clear();
-                  }),
+                Icon(
+                  widget.folderGrouping ? FluentIcons.folder : FluentIcons.calendar,
+                  size: 14,
                 ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    widget.folderGrouping
+                        ? 'نمایش بر اساس مسیر پوشه‌ها'
+                        : 'گروه‌بندی زمانی شمسی',
+                  ),
+                ),
+                if (!widget.folderGrouping) ...[
+                  Tooltip(
+                    message: 'بستن همه زیرمجموعه‌ها / باز کردن همه',
+                    child: IconButton(
+                      icon: const Icon(FluentIcons.chevron_up, size: 14),
+                      onPressed: widget.groups.isEmpty
+                          ? null
+                          : () => _toggleCollapseAllYears(widget.groups),
+                    ),
+                  ),
+                  ToggleSwitch(
+                    checked: _showYearMonthHeaders,
+                    onChanged: (value) => setState(() {
+                      _showYearMonthHeaders = value;
+                      _collapsedYears.clear();
+                      _collapsedMonths.clear();
+                    }),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1274,12 +1333,10 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                                   children: [
                                                     Text(
                                                       group.title,
-                                                      maxLines: 1,
-                                                      overflow:
-                                                          TextOverflow.ellipsis,
+                                                      maxLines: widget.folderGrouping ? 2 : 1,
+                                                      overflow: TextOverflow.ellipsis,
                                                       style: const TextStyle(
-                                                        fontWeight:
-                                                            FontWeight.bold,
+                                                        fontWeight: FontWeight.bold,
                                                       ),
                                                     ),
 
@@ -1292,7 +1349,8 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                                       ),
                                                     ),
 
-                                                    Text(
+                                                    if (!widget.folderGrouping)
+                                                      Text(
                                                       '${PersianDate.formatDateTime(group.start)} تا ${PersianDate.formatDateTime(group.end)}',
                                                       maxLines: 2,
                                                       overflow:
@@ -1304,13 +1362,14 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
 
                                                     const SizedBox(height: 3),
 
-                                                    Text(
-                                                      'تاریخ گروه: ${PersianDate.formatDate(group.metadata?.groupDate ?? group.start)}',
-                                                      style: TextStyle(
-                                                        fontSize: 10,
-                                                        color: Colors.grey[100],
+                                                    if (!widget.folderGrouping)
+                                                      Text(
+                                                        'تاریخ گروه: ${PersianDate.formatDate(group.metadata?.groupDate ?? group.start)}',
+                                                        style: TextStyle(
+                                                          fontSize: 10,
+                                                          color: Colors.grey[100],
+                                                        ),
                                                       ),
-                                                    ),
 
                                                     if (categoryText
                                                         .isNotEmpty) ...[
