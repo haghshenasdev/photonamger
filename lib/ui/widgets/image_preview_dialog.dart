@@ -7,6 +7,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/analysis/face_info.dart';
+import '../../core/utils/persian_date.dart';
 
 class ImagePreviewDialog extends StatefulWidget {
   final List<PreviewItem> items;
@@ -655,7 +656,7 @@ class _ImagePreviewDialogState extends State<ImagePreviewDialog> {
                                     const SizedBox(height: 4),
 
                                     Text(
-                                      file.createdAt.toString(),
+                                      PersianDate.formatDateTime(file.createdAt),
                                       style: const TextStyle(fontSize: 11),
                                       overflow: TextOverflow.ellipsis,
                                     ),

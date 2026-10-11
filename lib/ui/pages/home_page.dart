@@ -75,6 +75,7 @@ class _HomePageState extends State<HomePage> {
 
   List<DuplicateGroup> duplicateGroups = [];
   final Set<String> _selectedTransferPaths = <String>{};
+  bool _gridNewestFirst = false;
 
   FaceDatabase _faceDatabase = FaceDatabase();
   String? _faceDatabaseDirectory;
@@ -1402,6 +1403,10 @@ class _HomePageState extends State<HomePage> {
                                       ? _buildFaceGridItems()
                                       : buildGridItems(),
                                   selectedPaths: _selectedTransferPaths,
+                                  newestFirst: _gridNewestFirst,
+                                  onSortChanged: (newestFirst) {
+                                    setState(() => _gridNewestFirst = newestFirst);
+                                  },
                                   onSelectForTransfer: _toggleTransferSelection,
                                   onTransferSelected: _transferSelectedToGroup,
                                   onClearTransferSelection: () =>
@@ -2770,60 +2775,87 @@ class _HomePageState extends State<HomePage> {
     }
     if (selected.isEmpty || !mounted) return;
 
+    final groupSearchController = TextEditingController();
     final choice = await showDialog<Object?>(
       context: context,
-      builder: (dialogContext) => ContentDialog(
-        title: Text('انتقال ${selected.length} فایل به گروه زمانی'),
-        content: SizedBox(
-          width: 440,
-          height: 320,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text('گروه مقصد را انتخاب کنید یا گروه زمانی جدید بسازید.'),
-              const SizedBox(height: 8),
-              Expanded(
-                child: ListView.separated(
-                  itemCount: groups.length,
-                  separatorBuilder: (_, __) => const Divider(),
-                  itemBuilder: (context, index) {
-                    final group = groups[index];
-                    return Button(
-                      onPressed: () => Navigator.pop(dialogContext, group),
-                      child: Row(
-                        children: [
-                          const Icon(FluentIcons.calendar),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              group.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          final query = groupSearchController.text.trim().toLowerCase();
+          final filteredGroups = groups.where((group) {
+            if (query.isEmpty) return true;
+            return group.title.toLowerCase().contains(query) ||
+                group.items.length.toString().contains(query);
+          }).toList()
+            ..sort((a, b) => a.start.compareTo(b.start));
+
+          return ContentDialog(
+            title: Text('انتقال ${selected.length} فایل به گروه زمانی'),
+            content: SizedBox(
+              width: 460,
+              height: 360,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text('گروه مقصد را انتخاب کنید یا گروه زمانی جدید بسازید.'),
+                  const SizedBox(height: 8),
+                  TextBox(
+                    controller: groupSearchController,
+                    placeholder: 'جست‌وجوی نام گروه…',
+                    prefix: const Padding(
+                      padding: EdgeInsetsDirectional.only(start: 8),
+                      child: Icon(FluentIcons.search, size: 15),
+                    ),
+                    onChanged: (_) => setDialogState(() {}),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: filteredGroups.isEmpty
+                        ? const Center(child: Text('گروهی با این نام پیدا نشد.'))
+                        : ListView.separated(
+                            itemCount: filteredGroups.length,
+                            separatorBuilder: (_, __) => const Divider(),
+                            itemBuilder: (context, index) {
+                              final group = filteredGroups[index];
+                              return Button(
+                                onPressed: () =>
+                                    Navigator.pop(dialogContext, group),
+                                child: Row(
+                                  children: [
+                                    const Icon(FluentIcons.calendar),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        group.title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    Text('${group.items.length} فایل'),
+                                  ],
+                                ),
+                              );
+                            },
                           ),
-                          Text('${group.items.length} فایل'),
-                        ],
-                      ),
-                    );
-                  },
-                ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              Button(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('انصراف'),
+              ),
+              FilledButton(
+                onPressed: () =>
+                    Navigator.pop(dialogContext, '__create_new_group__'),
+                child: const Text('ساخت گروه زمانی جدید…'),
               ),
             ],
-          ),
-        ),
-        actions: [
-          Button(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('انصراف'),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.pop(dialogContext, '__create_new_group__'),
-            child: const Text('ساخت گروه زمانی جدید…'),
-          ),
-        ],
+          );
+        },
       ),
     );
+    groupSearchController.dispose();
     if (!mounted || choice == null) return;
 
     TimelineGroup? target;
@@ -3037,8 +3069,10 @@ class _HomePageState extends State<HomePage> {
       return value.isEmpty ||
           value == 'merged' ||
           value.startsWith('merged (') ||
-          value.startsWith('گروه ') ||
-          value.startsWith('گروه زمانی ');
+          value == 'گروه ادغام شده' ||
+          RegExp(r'^گروه\s+\d+$').hasMatch(value) ||
+          RegExp(r'^گروه زمانی\s+\d+$').hasMatch(value) ||
+          value == 'گروه زمانی جدید';
     }
 
     final preferredGroup = selectedGroups.firstWhere(

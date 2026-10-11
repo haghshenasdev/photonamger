@@ -95,6 +95,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
   String _searchQuery = '';
   String? _selectedCategory;
   bool _showYearMonthHeaders = true;
+  bool _multilineGroupTitle = false;
 
   final TextEditingController _searchController = TextEditingController();
 
@@ -997,7 +998,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                     ),
                                     const Spacer(),
                                     Text(
-                                      '${filteredGroups.where((g) => (g.metadata?.groupDate ?? g.start).year == year).length} گروه',
+                                      '${filteredGroups.where((g) => Jalali.fromDateTime(g.metadata?.groupDate ?? g.start).year == year).length} گروه',
                                       style: const TextStyle(fontSize: 11),
                                     ),
                                   ],
@@ -1040,6 +1041,17 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                       style: const TextStyle(
                                         fontWeight: FontWeight.w600,
                                       ),
+                                    ),
+                                    const Spacer(),
+                                    Text(
+                                      '${filteredGroups.where((g) {
+                                        final date = Jalali.fromDateTime(
+                                          g.metadata?.groupDate ?? g.start,
+                                        );
+                                        return date.year == year &&
+                                            date.month == month;
+                                      }).length} گروه',
+                                      style: const TextStyle(fontSize: 11),
                                     ),
                                   ],
                                 ),
@@ -1433,18 +1445,32 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
 
             const SizedBox(height: 8),
 
+            Checkbox(
+              checked: _multilineGroupTitle,
+              content: const Text('نام چندخطی'),
+              onChanged: (value) {
+                setState(() {
+                  _multilineGroupTitle = value ?? false;
+                });
+              },
+            ),
+
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
                   child: TextBox(
                     controller: titleController,
-                    maxLines: 1,
+                    maxLines: _multilineGroupTitle ? 3 : 1,
                     minLines: 1,
                     placeholder: 'عنوان گروه',
-                    inputFormatters: [
-                      FilteringTextInputFormatter.deny(RegExp(r'[\n\r]')),
-                    ],
+                    inputFormatters: _multilineGroupTitle
+                        ? const <TextInputFormatter>[]
+                        : [
+                            FilteringTextInputFormatter.deny(
+                              RegExp(r'[\n\r]'),
+                            ),
+                          ],
                     onChanged: (value) {
                       group.title = value;
                       group.edited = true;

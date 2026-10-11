@@ -20,6 +20,8 @@ class MediaGrid extends StatelessWidget {
   final List<GridItem> items;
   final VoidCallback? onChanged;
   final Set<String> selectedPaths;
+  final bool newestFirst;
+  final ValueChanged<bool>? onSortChanged;
   final ValueChanged<List<MediaItem>>? onSelectForTransfer;
   final VoidCallback? onTransferSelected;
   final VoidCallback? onClearTransferSelection;
@@ -43,6 +45,8 @@ class MediaGrid extends StatelessWidget {
     required this.items,
     this.onChanged,
     this.selectedPaths = const <String>{},
+    this.newestFirst = false,
+    this.onSortChanged,
     this.onSelectForTransfer,
     this.onTransferSelected,
     this.onClearTransferSelection,
@@ -62,7 +66,23 @@ class MediaGrid extends StatelessWidget {
       );
     }
 
-    final previewItems = items.map((e) {
+    final displayItems = List<GridItem>.from(items);
+    DateTime itemDate(GridItem item) {
+      if (item.isDuplicateGroup) {
+        final groupItems = item.duplicateGroup!.items;
+        if (groupItems.isEmpty) return DateTime.fromMillisecondsSinceEpoch(0);
+        return groupItems
+            .map((media) => media.createdAt)
+            .reduce((a, b) => a.isBefore(b) ? a : b);
+      }
+      return item.media!.createdAt;
+    }
+    displayItems.sort((a, b) {
+      final comparison = itemDate(a).compareTo(itemDate(b));
+      return newestFirst ? -comparison : comparison;
+    });
+
+    final previewItems = displayItems.map((e) {
       if (e.isDuplicateGroup) {
         return PreviewItem.duplicate(e.duplicateGroup!);
       }
@@ -71,7 +91,7 @@ class MediaGrid extends StatelessWidget {
     }).toList();
 
     final visibleMedia = <String, MediaItem>{};
-    for (final gridItem in items) {
+    for (final gridItem in displayItems) {
       if (gridItem.isDuplicateGroup) {
         for (final media in gridItem.duplicateGroup!.items) {
           visibleMedia[media.path.toLowerCase()] = media;
@@ -88,6 +108,30 @@ class MediaGrid extends StatelessWidget {
     return Card(
       child: Column(
         children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+            child: Row(
+              children: [
+                Text('${displayItems.length} مورد'),
+                const Spacer(),
+                Button(
+                  onPressed: onSortChanged == null
+                      ? null
+                      : () => onSortChanged!(!newestFirst),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(FluentIcons.sort, size: 14),
+                      const SizedBox(width: 6),
+                      Text(newestFirst
+                          ? 'جدید به قدیم'
+                          : 'قدیم به جدید'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
           if (selectedCount > 0)
             Padding(
               padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
@@ -116,14 +160,14 @@ class MediaGrid extends StatelessWidget {
           Expanded(
             child: GridView.builder(
               padding: const EdgeInsets.all(10),
-        itemCount: items.length,
+        itemCount: displayItems.length,
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 5,
           crossAxisSpacing: 10,
           mainAxisSpacing: 10,
         ),
         itemBuilder: (context, index) {
-          final item = items[index];
+          final item = displayItems[index];
 
           if (item.isDuplicateGroup) {
             final duplicateItems = item.duplicateGroup!.items;

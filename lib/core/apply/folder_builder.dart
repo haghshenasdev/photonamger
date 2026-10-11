@@ -42,11 +42,17 @@ class FolderBuilder {
 
     // پوشه گروه
     if (settings.createGroupFolder) {
-      String folderName = clean(group.title);
-
-      if (settings.appendDateToGroupName) {
-        folderName += " - ${PersianDate.formatDate(group.metadata?.groupDate ?? group.start)}";
-      }
+      final dateSuffix = settings.appendDateToGroupName
+          ? " - ${PersianDate.formatDate(group.metadata?.groupDate ?? group.start)}"
+          : '';
+      final baseName = clean(group.title);
+      const maxComponentLength = 240;
+      final availableBaseLength =
+          (maxComponentLength - dateSuffix.length).clamp(1, maxComponentLength).toInt();
+      final shortenedBase = baseName.length > availableBaseLength
+          ? baseName.substring(0, availableBaseLength).trimRight()
+          : baseName;
+      final folderName = clean('$shortenedBase$dateSuffix');
 
       path = "$path/$folderName";
     }
@@ -74,9 +80,16 @@ class FolderBuilder {
 
     if (!hadDateSuffix) return base;
 
-    return clean(
-      '$base - ${PersianDate.formatDate(group.metadata?.groupDate ?? group.start)}',
-    );
+    final suffix =
+        ' - ${PersianDate.formatDate(group.metadata?.groupDate ?? group.start)}';
+    const maxComponentLength = 240;
+    final availableBaseLength =
+        (maxComponentLength - suffix.length).clamp(1, maxComponentLength).toInt();
+    final shortenedBase = base.length > availableBaseLength
+        ? base.substring(0, availableBaseLength).trimRight()
+        : base;
+
+    return clean('$shortenedBase$suffix');
   }
 
   static String clean(String text) {

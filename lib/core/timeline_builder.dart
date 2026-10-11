@@ -146,8 +146,26 @@ class TimelineBuilder {
 
     items.sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
+    bool isDefaultTitle(String title) {
+      final value = title.trim().toLowerCase();
+      return value.isEmpty ||
+          value == 'merged' ||
+          value.startsWith('merged (') ||
+          value == 'گروه ادغام شده' ||
+          RegExp(r'^گروه\s+\d+$').hasMatch(value) ||
+          RegExp(r'^گروه زمانی\s+\d+$').hasMatch(value) ||
+          value == 'گروه زمانی جدید';
+    }
+
+    final preferred = groups.firstWhere(
+      (group) => !isDefaultTitle(group.title),
+      orElse: () => groups.first,
+    );
+
     return TimelineGroup(
-      title: 'گروه ادغام شده',
+      title: preferred.title.trim().isEmpty
+          ? 'گروه زمانی ${items.first.createdAt.year}'
+          : preferred.title,
       start: items.first.createdAt,
       end: items.last.createdAt,
       items: items,
