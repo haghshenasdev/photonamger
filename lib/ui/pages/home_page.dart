@@ -1326,6 +1326,7 @@ class _HomePageState extends State<HomePage> {
                   onSaveProjectAs: _saveProjectAs,
                   onResumeOperations: _resumePendingOperations,
                   onImportArchive: _importArchiveFromDisk,
+                  onExportDatabase: _exportPortableDatabaseToFile,
                   onShowStatistics: _showStatistics,
                 ),
               ),
@@ -1454,6 +1455,8 @@ class _HomePageState extends State<HomePage> {
                                 body: DuplicateGroupCard(
                                   groups: duplicateGroups,
                                   onGroupTap: _openDuplicateGroup,
+                                  parentGroupNameResolver:
+                                      _parentTimelineNameForDuplicateGroup,
                                 ),
                               ),
                               Tab(
@@ -1695,6 +1698,19 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  String? _parentTimelineNameForDuplicateGroup(DuplicateGroup duplicateGroup) {
+    for (final timelineGroup in groups) {
+      final containsDuplicate = timelineGroup.items.any((mediaItem) {
+        return duplicateGroup.items.any(
+          (duplicateItem) => _normalizePath(duplicateItem.path) ==
+              _normalizePath(mediaItem.path),
+        );
+      });
+      if (containsDuplicate) return timelineGroup.title;
+    }
+    return null;
+  }
+
   Future<void> _openDuplicateGroup(DuplicateGroup duplicateGroup) async {
     // پیدا کردن TimelineGroup مربوط به این DuplicateGroup
     TimelineGroup? targetTimeline;
@@ -1761,6 +1777,78 @@ class _HomePageState extends State<HomePage> {
 
     if (changed == true && mounted) {
       setState(() {});
+    }
+  }
+
+  Future<void> _exportPortableDatabaseToFile() async {
+    final targetPath = await FilePicker.platform.saveFile(
+      dialogTitle: 'ذخیره دیتابیس اطلاعات آرشینو',
+      fileName: PortableProjectDatabaseService.fileName,
+      type: FileType.custom,
+      allowedExtensions: const ['sqlite'],
+    );
+    if (targetPath == null || targetPath.trim().isEmpty) return;
+
+    final finalPath = targetPath.toLowerCase().endsWith('.sqlite')
+        ? targetPath
+        : '$targetPath.sqlite';
+    Directory? tempDirectory;
+
+    try {
+      tempDirectory = await Directory.systemTemp.createTemp('archino_export_');
+      final portable = const PortableProjectDatabaseService();
+      await portable.syncToRoot(
+        root: tempDirectory.path,
+        workingDatabase: _faceDatabase,
+        transferredItems: const <MediaItem>[],
+        categoryPaths: _uniqueCategoryPaths([
+          ..._categoryCatalogPaths,
+          ..._categoryPathsFromGroups(),
+        ]),
+        learningModel: CategoryLearningService().merge(
+          _categoryLearningModel,
+          CategoryLearningService().rebuild(groups),
+        ),
+        duplicateGroups: duplicateGroups,
+        analyzedItems: mediaItems,
+      );
+
+      final generatedDatabase = File(portable.pathFor(tempDirectory.path));
+      if (!await generatedDatabase.exists()) {
+        throw StateError('فایل دیتابیس خروجی ساخته نشد.');
+      }
+      await Directory(p.dirname(finalPath)).create(recursive: true);
+      await generatedDatabase.copy(finalPath);
+
+      if (!mounted) return;
+      await displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          title: const Text('خروجی دیتابیس ذخیره شد'),
+          content: Text('فایل SQLite در مسیر زیر ذخیره شد:\n$finalPath'),
+          severity: InfoBarSeverity.success,
+          onClose: close,
+        ),
+      );
+    } catch (e, stackTrace) {
+      debugPrint('Export portable database error: $e');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+      await displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          title: const Text('ذخیره دیتابیس ناموفق بود'),
+          content: Text(e.toString()),
+          severity: InfoBarSeverity.error,
+          onClose: close,
+        ),
+      );
+    } finally {
+      if (tempDirectory != null && await tempDirectory.exists()) {
+        try {
+          await tempDirectory.delete(recursive: true);
+        } catch (_) {}
+      }
     }
   }
 
@@ -2526,6 +2614,29 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _analyzeGroupFacesOnly(TimelineGroup group) async {
     if (engine.isRunning || group.items.isEmpty) return;
+
+    // فقط تصاویر تیک‌خورده (تیک سبز) باید وارد تشخیص چهره شوند؛
+    // فایل‌های ویدئویی و مواردی که انتخاب نشده‌اند نادیده گرفته می‌شوند.
+    final selectedImages = group.items
+        .where((item) => item.isSelected && !item.isVideo)
+        .toList(growable: false);
+
+    if (selectedImages.isEmpty) {
+      if (!mounted) return;
+      await displayInfoBar(
+        context,
+        builder: (context, close) => InfoBar(
+          title: const Text('تصویری برای بررسی انتخاب نشده است'),
+          content: const Text(
+            'برای تشخیص چهره، حداقل یک تصویر با تیک سبز در این گروه انتخاب کن.',
+          ),
+          severity: InfoBarSeverity.warning,
+          onClose: close,
+        ),
+      );
+      return;
+    }
+
     setState(
       () => progress = const AnalysisProgress(
         stage: AnalysisStage.faces,
@@ -2538,7 +2649,7 @@ class _HomePageState extends State<HomePage> {
       await engine.detectFaces(
         sourceRoots: sourcePaths,
         databaseDirectory: _getFaceDatabaseDirectory(),
-        onlyItems: group.items,
+        onlyItems: selectedImages,
         forceRescan: false,
         callback: (p) {
           if (mounted) setState(() => progress = p);
@@ -2553,7 +2664,7 @@ class _HomePageState extends State<HomePage> {
         builder: (context, close) => InfoBar(
           title: const Text('تشخیص چهره گروه پایان یافت'),
           content: Text(
-            'تعداد تصاویر گروه: ${group.items.length}. چهره‌های جدید به پایگاه چهره‌های کلی اضافه شدند.',
+            'تعداد تصاویر انتخاب‌شده بررسی‌شده: ${selectedImages.length}. چهره‌ها به پایگاه چهره‌های کلی اضافه شدند.',
           ),
           severity: InfoBarSeverity.success,
           onClose: close,

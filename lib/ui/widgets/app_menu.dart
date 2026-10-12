@@ -10,6 +10,7 @@ class AppMenu extends StatefulWidget {
     required this.onSaveProjectAs,
     required this.onResumeOperations,
     required this.onImportArchive,
+    required this.onExportDatabase,
     required this.onShowStatistics,
   });
 
@@ -19,6 +20,7 @@ class AppMenu extends StatefulWidget {
   final VoidCallback onSaveProjectAs;
   final VoidCallback onResumeOperations;
   final VoidCallback onImportArchive;
+  final VoidCallback onExportDatabase;
   final VoidCallback onShowStatistics;
 
   @override
@@ -228,6 +230,11 @@ class _AppMenuState extends State<AppMenu> {
                   icon: FluentIcons.database,
                   title: 'بارگذاری اطلاعات از آرشیو هارد',
                   onPressed: widget.onImportArchive,
+                ),
+                _item(
+                  icon: FluentIcons.save,
+                  title: 'ذخیره دیتابیس اطلاعات در مسیر دلخواه',
+                  onPressed: widget.onExportDatabase,
                 ),
                 _item(
                   icon: FluentIcons.sync,

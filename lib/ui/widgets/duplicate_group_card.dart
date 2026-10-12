@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:fgphoto/ui/models/duplicate_group.dart';
+import 'package:fgphoto/core/utils/persian_date.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 class DuplicateGroupCard extends StatelessWidget {
@@ -8,8 +9,14 @@ class DuplicateGroupCard extends StatelessWidget {
 
   /// وقتی روی یک گروه کلیک شود.
   final ValueChanged<DuplicateGroup>? onGroupTap;
+  final String? Function(DuplicateGroup group)? parentGroupNameResolver;
 
-  const DuplicateGroupCard({super.key, required this.groups, this.onGroupTap});
+  const DuplicateGroupCard({
+    super.key,
+    required this.groups,
+    this.onGroupTap,
+    this.parentGroupNameResolver,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -65,80 +72,77 @@ class DuplicateGroupCard extends StatelessWidget {
                                   ? group.selectedIndex
                                   : 0
                             ].path;
+                      final sortedDates = group.items
+                          .map((item) => item.createdAt)
+                          .toList()
+                        ..sort((a, b) => a.compareTo(b));
+                      final startDate = sortedDates.isEmpty ? null : sortedDates.first;
+                      final endDate = sortedDates.isEmpty ? null : sortedDates.last;
+                      final parentName = parentGroupNameResolver?.call(group);
 
                       return GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onTap: () => onGroupTap?.call(group),
                         child: Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: theme.micaBackgroundColor,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: theme.acrylicBackgroundColor,
-                              ),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: theme.micaBackgroundColor,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: theme.acrylicBackgroundColor,
                             ),
-                            child: Row(
-                              children: [
-                                SizedBox(
-                                  width: 100,
-                                  height: 86,
-                                  child: Stack(
-                                    clipBehavior: Clip.none,
-                                    children: [
-                                      if (group.items.length > 2)
-                                        Positioned(
-                                          left: 16,
-                                          top: 12,
-                                          child: _thumb(group.items[2].path, 66),
-                                        ),
-                                      if (group.items.length > 1)
-                                        Positioned(
-                                          left: 8,
-                                          top: 6,
-                                          child: _thumb(group.items[1].path, 66),
-                                        ),
-                                      if (primaryPath != null)
-                                        Positioned(
-                                          left: 0,
-                                          top: 0,
-                                          child: _thumb(primaryPath, 66),
-                                        ),
-                                    ],
+                          ),
+                          child: Row(
+                            children: [
+                              // فقط تصویر منتخب بارگذاری می‌شود؛ تصویرهای دیگر
+                              // گروه برای ساختن پشته روی هم بارگذاری نمی‌شوند.
+                              if (primaryPath != null)
+                                _thumb(primaryPath, 72)
+                              else
+                                Container(
+                                  width: 72,
+                                  height: 72,
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey[30],
+                                    borderRadius: BorderRadius.circular(7),
                                   ),
+                                  child: const Icon(FluentIcons.photo, size: 22),
                                 ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'گروه پشت‌سرهم ${index + 1}',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 14,
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      (parentName == null || parentName.trim().isEmpty)
+                                          ? 'گروه زمانی مادر مشخص نیست'
+                                          : parentName,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 7),
+                                    Wrap(
+                                      spacing: 6,
+                                      runSpacing: 5,
+                                      children: [
+                                        _countPill(
+                                          icon: FluentIcons.photo,
+                                          text: '${group.items.length} عکس',
                                         ),
-                                      ),
+                                        _countPill(
+                                          icon: FluentIcons.checkbox_composite,
+                                          text: '$selectedCount انتخاب‌شده',
+                                        ),
+                                      ],
+                                    ),
+                                    if (startDate != null && endDate != null) ...[
                                       const SizedBox(height: 7),
-                                      Wrap(
-                                        spacing: 6,
-                                        runSpacing: 5,
-                                        children: [
-                                          _countPill(
-                                            icon: FluentIcons.photo,
-                                            text: '${group.items.length} عکس',
-                                          ),
-                                          _countPill(
-                                            icon: FluentIcons.checkbox_composite,
-                                            text: '$selectedCount انتخاب‌شده',
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 6),
                                       Text(
-                                        'برای مشاهده و تغییر انتخاب‌ها کلیک کنید',
+                                        '${_formatDateTimeWithSeconds(startDate)}  تا  ${_formatDateTimeWithSeconds(endDate)}',
                                         maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
@@ -147,13 +151,14 @@ class DuplicateGroupCard extends StatelessWidget {
                                         ),
                                       ),
                                     ],
-                                  ),
+                                  ],
                                 ),
-                                const SizedBox(width: 4),
-                                const Icon(FluentIcons.chevron_left, size: 14),
-                              ],
-                            ),
+                              ),
+                              const SizedBox(width: 4),
+                              const Icon(FluentIcons.chevron_left, size: 14),
+                            ],
                           ),
+                        ),
                       );
                     },
                   ),
@@ -161,6 +166,14 @@ class DuplicateGroupCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _formatDateTimeWithSeconds(DateTime value) {
+    final date = PersianDate.format(value);
+    final hour = value.hour.toString().padLeft(2, '0');
+    final minute = value.minute.toString().padLeft(2, '0');
+    final second = value.second.toString().padLeft(2, '0');
+    return '$date $hour:$minute:$second';
   }
 
   Widget _countPill({required IconData icon, required String text}) {
