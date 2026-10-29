@@ -384,12 +384,11 @@ class FaceDatabaseService {
   Future<FaceDatabase> load(String baseDirectory) async {
     final file = fileFor(baseDirectory);
 
-    if (!await file.exists()) {
-      return FaceDatabase();
-    }
-
+    // Check recovery copies even when the main file is missing. A previous
+    // interrupted atomic save may have moved the main file to .bak before
+    // the replacement was completed.
     final candidates = <File>[
-      if (await file.exists()) file,
+      file,
       File('${file.path}.bak'),
       File('${file.path}.tmp'),
     ];
@@ -1144,6 +1143,16 @@ class FaceDatabaseService {
           groupedRejections[directory] ?? const <FaceRejection>[];
       final archiveScans = groupedScans[directory] ?? const <FaceScan>[];
 
+      // Keep the previous portable manifest available while rebuilding it.
+      // The central database can temporarily contain placeholder names after
+      // a project reload; overwriting the manifest with those placeholders
+      // would otherwise destroy the last copy of the user's real names.
+      final previousArchive = await loadPortableArchive(directory);
+      final previousPersonsById = <String, FacePerson>{
+        for (final person in (previousArchive?.persons ?? const <FacePerson>[]))
+          if (person.id.trim().isNotEmpty) person.id: person,
+      };
+
       // A person belongs to this folder if at least one of its faces or
       // rejections is represented there. This keeps the archive self-contained.
       final personIds = <String>{
@@ -1159,6 +1168,20 @@ class FaceDatabaseService {
           () => FacePerson(id: personId, name: 'شخص'),
         );
 
+        // Names are metadata, while personId is the stable identity. Prefer a
+        // real name from the existing folder manifest over a generic fallback
+        // in the central DB. This is especially important when applying a
+        // project after the central DB has been recreated or partially loaded.
+        final previousPerson = previousPersonsById[personId];
+        final currentName = person.name.trim();
+        final previousName = previousPerson?.name.trim() ?? '';
+        final preservedName = _isGenericPersonName(currentName) &&
+                !_isGenericPersonName(previousName)
+            ? previousName
+            : currentName.isNotEmpty
+            ? currentName
+            : (previousName.isNotEmpty ? previousName : 'شخص');
+
         // Prefer a cover face from this archive so the portable person record
         // does not point back to an old machine.
         StoredFace? bestFace;
@@ -1172,7 +1195,7 @@ class FaceDatabaseService {
         archivePersons.add(
           FacePerson(
             id: person.id,
-            name: person.name,
+            name: preservedName,
             coverRootKey: bestFace?.rootKey ?? person.coverRootKey,
             coverRelativePath:
                 bestFace?.relativePath ?? person.coverRelativePath,
@@ -1439,18 +1462,29 @@ class FaceDatabaseService {
           '${location.rootKey}|'
           '${_normRelative(location.relativePath)}';
 
-      db.faces.removeWhere(
-        (face) =>
-            '${face.rootKey}|'
-                '${_normRelative(face.relativePath)}' ==
-            fileKey,
-      );
+      final validDetected = entry.value
+          .where((face) => face.embedding.length >= 8)
+          .toList(growable: false);
+
+      // A folder-by-folder scan must be additive. In particular, a transient
+      // detector/model failure or an empty result must never erase a previously
+      // assigned, named face. Replace records only when this pass produced at
+      // least one usable embedding. Fingerprint matching also survives drive
+      // letter/root changes where the same image now has a different path key.
+      if (validDetected.isNotEmpty) {
+        db.faces.removeWhere(
+          (face) =>
+              '${face.rootKey}|'
+                      '${_normRelative(face.relativePath)}' ==
+                  fileKey,
+        );
+      }
 
       db.scans.removeWhere(
         (scan) =>
             '${scan.rootKey}|'
-                '${_normRelative(scan.relativePath)}' ==
-            fileKey,
+                    '${_normRelative(scan.relativePath)}' ==
+                fileKey,
       );
 
       db.scans.add(
@@ -1463,7 +1497,32 @@ class FaceDatabaseService {
 
       item.faces = [];
 
-      for (final detected in entry.value) {
+      // If the new pass did not produce usable faces, retain the previous
+      // records for this exact image in the UI as well as in the database.
+      if (validDetected.isEmpty) {
+        for (final previous in matchingDatabase.faces) {
+          if (previous.fingerprint != fingerprint ||
+              previous.embedding.length < 8 ||
+              _isRejected(db, fingerprint, previous.personId)) {
+            continue;
+          }
+          item.faces.add(
+            FaceInfo(
+              left: previous.left,
+              top: previous.top,
+              width: previous.width,
+              height: previous.height,
+              landmarks: List<double>.from(previous.landmarks),
+              confidence: previous.confidence,
+              embedding: List<double>.from(previous.embedding),
+              personId: previous.personId,
+              faceArea: previous.width * previous.height,
+            ),
+          );
+        }
+      }
+
+      for (final detected in validDetected) {
         if (detected.embedding.length < 8) {
           continue;
         }
