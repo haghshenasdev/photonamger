@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "fgphoto" "\0"
+            VALUE "FileDescription", "Archino" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "fgphoto" "\0"
+            VALUE "InternalName", "Archino" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "fgphoto.exe" "\0"
-            VALUE "ProductName", "fgphoto" "\0"
+            VALUE "OriginalFilename", "Archino.exe" "\0"
+            VALUE "ProductName", "Archino" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
