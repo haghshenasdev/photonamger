@@ -372,7 +372,24 @@ class TransferService {
 
     final results = <TransferResult>[];
 
+    // Publish the initial state before the first disk operation so the UI
+    // can display progress immediately, including when a disk is slow.
+    onProgress?.call(
+      TransferProgress(
+        current: current,
+        total: total,
+        fileName: total == 0 ? 'فایلی برای انتقال انتخاب نشده است' : 'آماده‌سازی فایل‌ها...',
+      ),
+    );
+
     for (final operation in transferOperations) {
+      onProgress?.call(
+        TransferProgress(
+          current: current,
+          total: total,
+          fileName: p.basename(operation.destinationPath),
+        ),
+      );
       final item = itemByPath[_key(operation.sourcePath)];
 
       // عملیات completed ممکن است بعد از Save انجام شده باشد و path آیتم

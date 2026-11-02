@@ -1520,18 +1520,81 @@ class _HomePageState extends State<HomePage> {
                             }
 
                             final transferService = TransferService();
+                            final transferProgressNotifier =
+                                ValueNotifier<TransferProgress>(
+                              const TransferProgress(
+                                current: 0,
+                                total: 0,
+                                fileName: 'در حال آماده‌سازی انتقال...',
+                              ),
+                            );
+                            BuildContext? transferDialogContext;
+                            final transferDialogFuture = showDialog<void>(
+                              context: context,
+                              barrierDismissible: false,
+                              builder: (dialogContext) {
+                                transferDialogContext = dialogContext;
+                                return ContentDialog(
+                                  title: const Text('روند انتقال فایل‌ها'),
+                                  content: SizedBox(
+                                    width: 440,
+                                    child: ValueListenableBuilder<TransferProgress>(
+                                      valueListenable: transferProgressNotifier,
+                                      builder: (context, p, _) {
+                                        final hasTotal = p.total > 0;
+                                        final double percent = hasTotal
+                                            ? (p.current / p.total * 100)
+                                                .clamp(0, 100)
+                                                .toDouble()
+                                            : 0.0;
+                                        return Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                                          children: [
+                                            Text(p.fileName),
+                                            const SizedBox(height: 14),
+                                            ProgressBar(
+                                              value: hasTotal ? percent : null,
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Text(
+                                              hasTotal
+                                                  ? '${p.current} از ${p.total} فایل  (${percent.toStringAsFixed(0)}٪)'
+                                                  : 'در حال آماده‌سازی فهرست فایل‌ها...',
+                                              textAlign: TextAlign.center,
+                                            ),
+                                          ],
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                );
+                              },
+                            );
+                            unawaited(transferDialogFuture);
+
+                            void closeTransferProgressDialog() {
+                              final dialogContext = transferDialogContext;
+                              if (dialogContext != null &&
+                                  Navigator.of(dialogContext).canPop()) {
+                                Navigator.of(dialogContext).pop();
+                              }
+                              transferProgressNotifier.dispose();
+                            }
 
                             try {
                               if (mounted) {
                                 setState(() {
                                   progress = const AnalysisProgress(
-                                    stage: AnalysisStage.finished,
+                                    stage: AnalysisStage.scanning,
                                     current: 0,
                                     total: 0,
                                     message: 'در حال آماده‌سازی انتقال...',
                                   );
                                 });
                               }
+                              // فرصت می‌دهیم دیالوگ قبل از شروع کارهای دیسک رسم شود.
+                              await Future<void>.delayed(Duration.zero);
 
                               final project = _ensureProject();
                               project.applySettings = settings;
@@ -1576,13 +1639,14 @@ class _HomePageState extends State<HomePage> {
 
                                       setState(() {
                                         progress = AnalysisProgress(
-                                          stage: AnalysisStage.finished,
+                                          stage: AnalysisStage.scanning,
                                           current: p.current,
                                           total: p.total,
                                           message:
                                               'در حال انتقال ${p.fileName}',
                                         );
                                       });
+                                      transferProgressNotifier.value = p;
                                     },
                                   );
 
@@ -1612,6 +1676,7 @@ class _HomePageState extends State<HomePage> {
 
                               await _enqueueProjectSave();
 
+                              closeTransferProgressDialog();
                               if (!mounted) return;
 
                               setState(() {
@@ -1628,6 +1693,7 @@ class _HomePageState extends State<HomePage> {
                               debugPrintStack(stackTrace: stackTrace);
 
                               await _enqueueProjectSave();
+                              closeTransferProgressDialog();
 
                               if (!mounted) return;
 
@@ -3789,7 +3855,7 @@ class _HomePageState extends State<HomePage> {
 
     setState(() {
       progress = const AnalysisProgress(
-        stage: AnalysisStage.finished,
+        stage: AnalysisStage.scanning,
         current: 0,
         total: 0,
         message: 'در حال بازیابی عملیات...',
@@ -3836,7 +3902,7 @@ class _HomePageState extends State<HomePage> {
 
             setState(() {
               progress = AnalysisProgress(
-                stage: AnalysisStage.finished,
+                stage: AnalysisStage.scanning,
                 current: p.current,
                 total: p.total,
                 message: 'در حال ادامه ${p.fileName}',
