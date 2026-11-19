@@ -42,7 +42,7 @@ class ReadChannelService {
     try {
       int page = 0;
 
-      const maxPages = 300;
+      const maxPages = 500;
 
       onProgress?.call(null, "در حال خواندن کانال...");
 
@@ -300,7 +300,10 @@ class ReadChannelService {
         );
       }
 
-      final document = parse(response.body);
+      // Eitaa serves UTF-8 HTML; Response.body may fall back to Latin-1 when
+      // the server omits charset, which corrupts Persian characters.
+      final htmlText = utf8.decode(response.bodyBytes, allowMalformed: true);
+      final document = parse(htmlText);
 
       final section = document.querySelector("section.etme_channel_history");
 
@@ -394,9 +397,9 @@ class ReadChannelService {
   Future<void> _loadDiskCache() async {
     try {
       final directory = await getApplicationSupportDirectory();
-      // v2 stores media-only posts so old v1 pages cannot truncate paging.
+      // v3 refreshes pages previously decoded with the default HTTP charset.
       _diskCacheFile = File(
-        '${directory.path}${Platform.pathSeparator}eitaa_channel_pages_v2.json',
+        '${directory.path}${Platform.pathSeparator}eitaa_channel_pages_v3.json',
       );
       if (!await _diskCacheFile!.exists()) return;
       final decoded = jsonDecode(await _diskCacheFile!.readAsString());

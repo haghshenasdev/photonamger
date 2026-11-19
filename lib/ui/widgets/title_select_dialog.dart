@@ -1,13 +1,17 @@
+import 'package:fgphoto/core/channel/chanel_post.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:shamsi_date/shamsi_date.dart';
 
 class TitleSelectDialog extends StatefulWidget {
   final List<String> titles;
+  final List<ChannelPost> posts;
 
   final String current;
 
   const TitleSelectDialog({
     super.key,
     required this.titles,
+    this.posts = const [],
     required this.current,
   });
 
@@ -40,7 +44,13 @@ class _TitleSelectDialogState extends State<TitleSelectDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final filtered = widget.titles.where((e) => e.contains(search)).toList();
+    final filteredPosts = widget.posts
+        .where((post) => post.title.contains(search))
+        .toList();
+    final filteredTitles = widget.titles
+        .where((title) => title.contains(search))
+        .toList();
+    final hasPosts = widget.posts.isNotEmpty;
 
     return ContentDialog(
       title: const Text("انتخاب عنوان گروه"),
@@ -66,14 +76,39 @@ class _TitleSelectDialogState extends State<TitleSelectDialog> {
               },
             ),
 
+            const SizedBox(height: 8),
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Text(
+                'تعداد عنوان‌های استخراج‌شده: ${hasPosts ? widget.posts.length : widget.titles.length}',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+
             const SizedBox(height: 10),
 
             Expanded(
               child: ListView.builder(
-                itemCount: filtered.length,
+                itemCount: hasPosts
+                    ? filteredPosts.length
+                    : filteredTitles.length,
 
                 itemBuilder: (_, index) {
-                  final title = filtered[index];
+                  if (hasPosts) {
+                    final post = filteredPosts[index];
+                    final localDate = post.date.toLocal();
+                    final jalali = Jalali.fromDateTime(localDate);
+                    final date =
+                        '${jalali.year}/${jalali.month.toString().padLeft(2, '0')}/${jalali.day.toString().padLeft(2, '0')}';
+                    final time =
+                        '${localDate.hour.toString().padLeft(2, '0')}:${localDate.minute.toString().padLeft(2, '0')}';
+                    return ListTile(
+                      title: Text(post.title),
+                      subtitle: Text('$date  $time'),
+                      onPressed: () => Navigator.pop(context, post.title),
+                    );
+                  }
+                  final title = filteredTitles[index];
 
                   return ListTile(
                     title: Text(title),

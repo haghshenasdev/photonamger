@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:fgphoto/core/channel/chanel_post.dart';
 import 'package:fgphoto/core/utils/persian_date.dart';
 import 'package:fgphoto/ui/dialogs/group_metadata_dialog.dart';
 import 'package:fgphoto/ui/models/group_metadata.dart';
@@ -67,7 +68,8 @@ class TimelineGroupCard extends StatefulWidget {
   final ValueChanged<TimelineGroup> onGroupUpdated;
   final VoidCallback onReprocessRequested;
   final Future<void> Function(TimelineGroup group) onAnalyzeGroupRequested;
-  final Future<void> Function(TimelineGroup group)? onAnalyzeGroupFacesRequested;
+  final Future<void> Function(TimelineGroup group)?
+  onAnalyzeGroupFacesRequested;
   final void Function(List<TimelineGroup> groups) onGroupsMerged;
   final VoidCallback onResetTimeline;
   final VoidCallback onSuggestCategories;
@@ -125,6 +127,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
   final FlyoutController _suggestionsFlyoutController = FlyoutController();
 
   final List<String> suggestedTitles = <String>[];
+  final List<ChannelPost> extractedTitlePosts = <ChannelPost>[];
 
   @override
   void dispose() {
@@ -494,9 +497,11 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
 
     if (widget.folderGrouping) {
       final indices = List<int>.generate(filtered.length, (i) => i);
-      indices.sort((a, b) => filtered[a].title.toLowerCase().compareTo(
-            filtered[b].title.toLowerCase(),
-          ));
+      indices.sort(
+        (a, b) => filtered[a].title.toLowerCase().compareTo(
+          filtered[b].title.toLowerCase(),
+        ),
+      );
       return indices.map(_TimelineListEntry.group).toList();
     }
 
@@ -555,7 +560,8 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
       months.add('${jalali.year}-${jalali.month}');
     }
 
-    final allCollapsed = years.isNotEmpty &&
+    final allCollapsed =
+        years.isNotEmpty &&
         years.every(_collapsedYears.contains) &&
         months.every(_collapsedMonths.contains);
 
@@ -746,6 +752,8 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                                 groups: widget.groups,
                                                 suggestedTitles:
                                                     suggestedTitles,
+                                                extractedPosts:
+                                                    extractedTitlePosts,
                                                 onFinished: () {
                                                   if (mounted) {
                                                     setState(() {});
@@ -795,7 +803,9 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
             child: Row(
               children: [
                 Icon(
-                  widget.folderGrouping ? FluentIcons.folder : FluentIcons.calendar,
+                  widget.folderGrouping
+                      ? FluentIcons.folder
+                      : FluentIcons.calendar,
                   size: 14,
                 ),
                 const SizedBox(width: 6),
@@ -1103,11 +1113,8 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                     const Spacer(),
                                     Text(
                                       '${filteredGroups.where((g) {
-                                        final date = Jalali.fromDateTime(
-                                          g.metadata?.groupDate ?? g.start,
-                                        );
-                                        return date.year == year &&
-                                            date.month == month;
+                                        final date = Jalali.fromDateTime(g.metadata?.groupDate ?? g.start);
+                                        return date.year == year && date.month == month;
                                       }).length} گروه',
                                       style: const TextStyle(fontSize: 11),
                                     ),
@@ -1247,13 +1254,24 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                                           );
                                                     },
                                                   ),
-                                                  if (widget.onAnalyzeGroupFacesRequested != null)
+                                                  if (widget
+                                                          .onAnalyzeGroupFacesRequested !=
+                                                      null)
                                                     MenuFlyoutItem(
-                                                      leading: const Icon(FluentIcons.contact),
-                                                      text: const Text('تشخیص چهره فقط در این پوشه'),
+                                                      leading: const Icon(
+                                                        FluentIcons.contact,
+                                                      ),
+                                                      text: const Text(
+                                                        'تشخیص چهره فقط در این پوشه',
+                                                      ),
                                                       onPressed: () async {
-                                                        widget.onGroupSelected(group);
-                                                        await widget.onAnalyzeGroupFacesRequested!(group);
+                                                        widget.onGroupSelected(
+                                                          group,
+                                                        );
+                                                        await widget
+                                                            .onAnalyzeGroupFacesRequested!(
+                                                          group,
+                                                        );
                                                       },
                                                     ),
                                                   MenuFlyoutItem(
@@ -1333,10 +1351,15 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                                   children: [
                                                     Text(
                                                       group.title,
-                                                      maxLines: widget.folderGrouping ? 2 : 1,
-                                                      overflow: TextOverflow.ellipsis,
+                                                      maxLines:
+                                                          widget.folderGrouping
+                                                          ? 2
+                                                          : 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
                                                       style: const TextStyle(
-                                                        fontWeight: FontWeight.bold,
+                                                        fontWeight:
+                                                            FontWeight.bold,
                                                       ),
                                                     ),
 
@@ -1351,14 +1374,14 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
 
                                                     if (!widget.folderGrouping)
                                                       Text(
-                                                      '${PersianDate.formatDateTime(group.start)} تا ${PersianDate.formatDateTime(group.end)}',
-                                                      maxLines: 2,
-                                                      overflow:
-                                                          TextOverflow.ellipsis,
-                                                      style: const TextStyle(
-                                                        fontSize: 11,
+                                                        '${PersianDate.formatDateTime(group.start)} تا ${PersianDate.formatDateTime(group.end)}',
+                                                        maxLines: 2,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                        style: const TextStyle(
+                                                          fontSize: 11,
+                                                        ),
                                                       ),
-                                                    ),
 
                                                     const SizedBox(height: 3),
 
@@ -1367,7 +1390,8 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                                                         'تاریخ گروه: ${PersianDate.formatDate(group.metadata?.groupDate ?? group.start)}',
                                                         style: TextStyle(
                                                           fontSize: 10,
-                                                          color: Colors.grey[100],
+                                                          color:
+                                                              Colors.grey[100],
                                                         ),
                                                       ),
 
@@ -1531,6 +1555,7 @@ class _TimelineGroupCardState extends State<TimelineGroupCard> {
                       builder: (_) {
                         return TitleSelectDialog(
                           titles: suggestedTitles,
+                          posts: extractedTitlePosts,
                           current: group.title,
                         );
                       },

@@ -11,12 +11,14 @@ import 'package:shamsi_date/shamsi_date.dart';
 class TitleSuggestionDialog extends StatefulWidget {
   final List<TimelineGroup> groups;
   final List<String> suggestedTitles;
+  final List<ChannelPost> extractedPosts;
   final VoidCallback? onFinished;
 
   const TitleSuggestionDialog({
     super.key,
     required this.groups,
     required this.suggestedTitles,
+    required this.extractedPosts,
     this.onFinished,
   });
 
@@ -398,6 +400,9 @@ class _TitleSuggestionDialogState extends State<TitleSuggestionDialog> {
       replacedTitlesCount = 0;
 
       widget.suggestedTitles.clear();
+      widget.extractedPosts
+        ..clear()
+        ..addAll(posts);
 
       // --------------------------------------------------------
       // تطبیق عنوان‌ها

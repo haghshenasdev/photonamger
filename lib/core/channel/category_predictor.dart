@@ -235,8 +235,8 @@ class CategoryPredictor {
     if (candidates.isEmpty) return '';
     candidates.sort((a, b) => _headlineScore(b).compareTo(_headlineScore(a)));
     final best = candidates.first;
-    if (_headlineScore(best) < 2) return '';
-    return _shortenHeadline(best, 105);
+    if (_headlineScore(best) < 2 || best.contains('\uFFFD')) return '';
+    return _shortenHeadline(best, 300);
   }
 
   String _normalizePersian(String value) => value
@@ -262,29 +262,50 @@ class CategoryPredictor {
       'روابط عمومی',
     ];
     for (final phrase in boilerplate) {
-      text = text.replaceAll(RegExp(RegExp.escape(phrase), caseSensitive: false), ' ');
+      text = text.replaceAll(
+        RegExp(RegExp.escape(phrase), caseSensitive: false),
+        ' ',
+      );
     }
     return text.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
   int _headlineScore(String text) {
     final words = text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
-    if (words < 4 || words > 32) return -10;
+    // Full event sentences can make useful titles when they identify people,
+    // action, and location.
+    if (words < 4 || words > 55) return -10;
     if (RegExp(r'^(https?://|www\.|@|#)').hasMatch(text)) return -10;
     var score = 1;
     if (words >= 6 && words <= 20) score += 2;
     if (RegExp(r'[\p{L}]', unicode: true).hasMatch(text)) score++;
-    if (RegExp(r'(گفت|اعلام|برگزار|دیدار|بازدید|تصویب|افتتاح|ملاقات|جلسه|نشست|تاکید|تأکید|خبر|استان|شهرستان)', unicode: true).hasMatch(text)) score += 3;
-    if (RegExp(r'(هم اکنون|لحظاتی پیش|دقایقی پیش|امروز|فردا|کانال|عضویت|لینک)', unicode: true).hasMatch(text)) score--;
-    if (text.length > 180) score--;
+    if (RegExp(
+      r'(گفت|اعلام|برگزار|دیدار|بازدید|تصویب|افتتاح|ملاقات|جلسه|نشست|تاکید|تأکید|خبر|استان|شهرستان)',
+      unicode: true,
+    ).hasMatch(text))
+      score += 3;
+    if (RegExp(
+      r'(هم اکنون|لحظاتی پیش|دقایقی پیش|امروز|فردا|کانال|عضویت|لینک)',
+      unicode: true,
+    ).hasMatch(text))
+      score--;
+    if (RegExp(
+      r'(بازدید کردند|بازدید کرد|دیدار کردند|دیدار کرد|افتتاح کردند|افتتاح کرد|بررسی کردند|بررسی کرد|به دعوت|از پروژه|از طرح|از بیمارستان)',
+      unicode: true,
+    ).hasMatch(text)) {
+      score += 5;
+    }
+    if (text.length > 260) score--;
     return score;
   }
 
   String _shortenHeadline(String text, int maxLength) {
-    if (text.length <= maxLength) return text;
-    final cut = text.substring(0, maxLength);
+    final codePoints = text.runes.toList();
+    if (codePoints.length <= maxLength) return text;
+    final cut = String.fromCharCodes(codePoints.take(maxLength));
     final boundary = cut.lastIndexOf(' ');
-    return (boundary > maxLength * .65 ? cut.substring(0, boundary) : cut).trim();
+    return (boundary > maxLength * .65 ? cut.substring(0, boundary) : cut)
+        .trim();
   }
 
   Map<int, int> predictCore(List<String> keywords, {int top = 2}) {
