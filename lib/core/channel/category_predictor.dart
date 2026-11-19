@@ -212,6 +212,81 @@ class CategoryPredictor {
     return PredictionResult(categories: categories);
   }
 
+  /// Extracts a concise, news-like headline from the full post text.
+  /// Channel posts often start with a boilerplate line and put the actual
+  /// event in a later sentence, so score all lines and sentences.
+  String extractHeadline(String rawText) {
+    final normalized = _normalizePersian(rawText);
+    final cleaned = normalized
+        .replaceAll(RegExp(r'https?://\S+', caseSensitive: false), ' ')
+        .replaceAll(RegExp(r'www\.\S+', caseSensitive: false), ' ')
+        .replaceAll(RegExp(r'@[\w\u200c]+'), ' ')
+        .replaceAll(RegExp(r'#[\p{L}\p{N}_]+', unicode: true), ' ')
+        .replaceAll(RegExp(r'[📸📹🎥🔻🔺🔹🔸▪️▫️✅❇️🌐📲🆔]+'), ' ');
+
+    final candidates = <String>[];
+    for (final line in cleaned.split(RegExp(r'[\r\n]+'))) {
+      final parts = line.split(RegExp(r'(?<=[.!؟!?])\s+'));
+      for (final part in parts) {
+        final value = _tidyHeadline(part);
+        if (value.isNotEmpty) candidates.add(value);
+      }
+    }
+    if (candidates.isEmpty) return '';
+    candidates.sort((a, b) => _headlineScore(b).compareTo(_headlineScore(a)));
+    final best = candidates.first;
+    if (_headlineScore(best) < 2) return '';
+    return _shortenHeadline(best, 105);
+  }
+
+  String _normalizePersian(String value) => value
+      .replaceAll('ي', 'ی')
+      .replaceAll('ى', 'ی')
+      .replaceAll('ك', 'ک')
+      .replaceAll('\u0640', '')
+      .replaceAll(RegExp(r'[\u064B-\u065F\u0670]'), '')
+      .replaceAll('\u00a0', ' ');
+
+  String _tidyHeadline(String value) {
+    var text = _normalizePersian(value)
+        .replaceAll(RegExp(r'^[\s\-–—|:،؛ـ]+|[\s\-–—|:،؛ـ]+$'), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    const boilerplate = [
+      'هم اکنون در حال برگزاری است',
+      'در حال برگزاری است',
+      'با ما همراه باشید',
+      'برای مشاهده',
+      'ادامه خبر',
+      'گزارش تصویری',
+      'روابط عمومی',
+    ];
+    for (final phrase in boilerplate) {
+      text = text.replaceAll(RegExp(RegExp.escape(phrase), caseSensitive: false), ' ');
+    }
+    return text.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  int _headlineScore(String text) {
+    final words = text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+    if (words < 4 || words > 32) return -10;
+    if (RegExp(r'^(https?://|www\.|@|#)').hasMatch(text)) return -10;
+    var score = 1;
+    if (words >= 6 && words <= 20) score += 2;
+    if (RegExp(r'[\p{L}]', unicode: true).hasMatch(text)) score++;
+    if (RegExp(r'(گفت|اعلام|برگزار|دیدار|بازدید|تصویب|افتتاح|ملاقات|جلسه|نشست|تاکید|تأکید|خبر|استان|شهرستان)', unicode: true).hasMatch(text)) score += 3;
+    if (RegExp(r'(هم اکنون|لحظاتی پیش|دقایقی پیش|امروز|فردا|کانال|عضویت|لینک)', unicode: true).hasMatch(text)) score--;
+    if (text.length > 180) score--;
+    return score;
+  }
+
+  String _shortenHeadline(String text, int maxLength) {
+    if (text.length <= maxLength) return text;
+    final cut = text.substring(0, maxLength);
+    final boundary = cut.lastIndexOf(' ');
+    return (boundary > maxLength * .65 ? cut.substring(0, boundary) : cut).trim();
+  }
+
   Map<int, int> predictCore(List<String> keywords, {int top = 2}) {
     final scores = <int, int>{};
 
@@ -260,6 +335,8 @@ class CategoryPredictor {
   }
 
   String cleanTitle(String rawTitle) {
+    final extracted = extractHeadline(rawTitle);
+    if (extracted.isNotEmpty) return extracted;
     var text = rawTitle;
 
     // حذف آیدی‌ها

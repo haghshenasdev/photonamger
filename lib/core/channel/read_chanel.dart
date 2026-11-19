@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:fgphoto/core/channel/category_predictor.dart';
 import 'package:fgphoto/core/channel/chanel_post.dart';
 import 'package:html/parser.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 
 class ReadChannelService {
   ReadChannelService({required this.predictor, required String channel})
@@ -18,9 +21,12 @@ class ReadChannelService {
   static DateTime? _lastRequestAt;
   static final Map<String, _CachedResponse> _cache =
       <String, _CachedResponse>{};
+  static Future<void>? _diskCacheLoad;
+  static File? _diskCacheFile;
 
-  static const Duration _minRequestGap = Duration(seconds: 3);
-  static const Duration _cacheTtl = Duration(minutes: 5);
+  static const Duration _maxRequestGap = Duration(seconds: 2);
+  static const Duration _latestPageTtl = Duration(minutes: 2);
+  static const Duration _historyPageTtl = Duration(days: 30);
 
   /// از دیتابیس یا تنظیمات بخوان
   // int lastReadId = 9555;
@@ -29,6 +35,9 @@ class ReadChannelService {
     required DateTime oldestDate,
     bool onlyImagePosts = true,
     void Function(double? progress, String status)? onProgress,
+    void Function(ChannelPost post)? onPostRead,
+    Future<void> Function()? onPauseCheck,
+    bool Function()? shouldStopReading,
   }) async {
     try {
       int page = 0;
@@ -43,7 +52,10 @@ class ReadChannelService {
 
       bool reachedOldest = false;
 
-      while (!reachedOldest && page < maxPages) {
+      while (!reachedOldest &&
+          page < maxPages &&
+          !(shouldStopReading?.call() ?? false)) {
+        await onPauseCheck?.call();
         page++;
 
         onProgress?.call(null, "در حال خواندن صفحه $page");
@@ -57,6 +69,7 @@ class ReadChannelService {
         // of the channel. Retry the same cursor a few times, then stop while
         // keeping posts already collected.
         for (var attempt = 0; attempt < 3; attempt++) {
+          await onPauseCheck?.call();
           try {
             result = await dom(url);
             pageError = null;
@@ -75,9 +88,12 @@ class ReadChannelService {
         }
 
         if (result.isEmpty) {
-          // A valid empty page means there is no more history. Keep the
-          // time-window behavior below unchanged.
-          onProgress?.call(null, 'صفحه $page پست قابل‌خواندن نداشت؛ پایان تاریخچه یا تغییر ساختار صفحه.');
+          // No dated message wrappers were parsed, so there is no safe cursor
+          // to request the next page with.
+          onProgress?.call(
+            null,
+            'صفحه $page هیچ پست قابل‌صفحه‌بندی نداشت؛ احتمالاً به انتهای تاریخچه یا پاسخ نامعتبر رسیده‌ایم.',
+          );
           break;
         }
 
@@ -101,6 +117,18 @@ class ReadChannelService {
           if (!date.isBefore(oldestDate) &&
               (!onlyImagePosts || (post.length > 2 && post[2] == 'true'))) {
             newPosts[id] = post;
+            final rawText = post[0].trim();
+            if (rawText.isNotEmpty) {
+              onPostRead?.call(
+                ChannelPost(
+                  // Headline extraction happens once in the processing pass.
+                  title: '',
+                  date: date,
+                  id: id,
+                  preview: rawText.replaceAll(RegExp(r'\s+'), ' ').trim(),
+                ),
+              );
+            }
           }
         }
 
@@ -113,13 +141,25 @@ class ReadChannelService {
         // Protect against a page repeating the same IDs indefinitely.
         final nextId = ids.last;
         if (currentId != null && nextId >= currentId) {
-          onProgress?.call(null, 'صفحه‌بندی ایتا تکراری شد؛ برای جلوگیری از حلقه، خواندن متوقف شد.');
+          onProgress?.call(
+            null,
+            'صفحه‌بندی ایتا تکراری شد؛ برای جلوگیری از حلقه، خواندن متوقف شد.',
+          );
           break;
         }
         currentId = nextId;
       }
 
       onProgress?.call(null, "در حال حذف عناوین تکراری...");
+
+      if (page >= maxPages &&
+          !reachedOldest &&
+          !(shouldStopReading?.call() ?? false)) {
+        onProgress?.call(
+          null,
+          'به سقف ایمنی $maxPages صفحه رسیدیم؛ تاریخ درخواستی ممکن است هنوز پوشش داده نشده باشد.',
+        );
+      }
 
       final filtered = removeExactDuplicateTitlesKeepHigherId(newPosts);
 
@@ -134,6 +174,7 @@ class ReadChannelService {
       final total = sortedIds.length;
 
       for (final id in sortedIds) {
+        await onPauseCheck?.call();
         current++;
 
         onProgress?.call(
@@ -141,19 +182,22 @@ class ReadChannelService {
           "در حال تحلیل عنوان‌ها ($current از $total)",
         );
 
-        final post = filtered[id]!;
+        final rawPost = filtered[id]!;
 
-        final title = post[0].trim();
-        final parsedDate = DateTime.tryParse(post[1]);
+        final title = rawPost[0].trim();
+        final parsedDate = DateTime.tryParse(rawPost[1]);
         if (title.isEmpty || parsedDate == null) continue;
         final date = parsedDate;
 
-        final cats = await predictor.predictWithCity(title);
-
-        if (cats != null && cats.categories.isNotEmpty) {
-          posts.add(
-            ChannelPost(title: predictor.cleanTitle(title), date: date, id: id),
-          );
+        final headline = predictor.extractHeadline(title);
+        final channelPost = ChannelPost(
+          title: headline,
+          date: date,
+          id: id,
+          preview: title.replaceAll(RegExp(r'\s+'), ' ').trim(),
+        );
+        if (headline.isNotEmpty) {
+          posts.add(channelPost);
 
           // print(predictor.cleanTitle(title));
           // print(date);
@@ -196,9 +240,10 @@ class ReadChannelService {
 
   Future<Map<int, List<String>>> dom(String url) async {
     try {
+      await _ensureDiskCacheLoaded();
       final cached = _cache[url];
-      if (cached != null &&
-          DateTime.now().difference(cached.createdAt) < _cacheTtl) {
+      final ttl = url.contains('?before=') ? _historyPageTtl : _latestPageTtl;
+      if (cached != null && DateTime.now().difference(cached.createdAt) < ttl) {
         return cached.messages;
       }
 
@@ -242,9 +287,7 @@ class ReadChannelService {
         }
 
         if (attempt < maxAttempts - 1) {
-          final backoff = Duration(
-            seconds: 2 + (attempt * 3),
-          );
+          final backoff = Duration(seconds: 2 + (attempt * 3));
 
           await Future.delayed(backoff);
         }
@@ -259,11 +302,12 @@ class ReadChannelService {
 
       final document = parse(response.body);
 
-      final section =
-          document.querySelector("section.etme_channel_history");
+      final section = document.querySelector("section.etme_channel_history");
 
       if (section == null) {
-        throw FormatException('ساختار تاریخچه کانال در پاسخ ایتا پیدا نشد؛ احتمالاً HTML تغییر کرده یا دسترسی محدود شده است.');
+        throw FormatException(
+          'ساختار تاریخچه کانال در پاسخ ایتا پیدا نشد؛ احتمالاً HTML تغییر کرده یا دسترسی محدود شده است.',
+        );
       }
 
       final messages = section.querySelectorAll("div.etme_widget_message_wrap");
@@ -282,7 +326,8 @@ class ReadChannelService {
         // Eitaa has used more than one markup layout. Prefer the message text,
         // but also inspect caption/legacy selectors. Element.text keeps text
         // from later lines and image captions; normalize whitespace afterwards.
-        final textElement = message.querySelector('.etme_widget_message_text') ??
+        final textElement =
+            message.querySelector('.etme_widget_message_text') ??
             message.querySelector('.etme_widget_message_caption') ??
             message.querySelector('.etme_widget_message_content') ??
             message.querySelector('.tgme_widget_message_text');
@@ -294,15 +339,22 @@ class ReadChannelService {
             .replaceAll(RegExp(r'\n{3,}'), '\n\n')
             .trim();
 
-        final timeElement = message.querySelector('time.time') ??
+        final timeElement =
+            message.querySelector('time.time') ??
             message.querySelector('time[datetime]') ??
             message.querySelector('time');
-        final time = timeElement?.attributes['datetime'] ??
-            timeElement?.attributes['title'] ?? '';
+        final time =
+            timeElement?.attributes['datetime'] ??
+            timeElement?.attributes['title'] ??
+            '';
 
-        if (text.isEmpty || DateTime.tryParse(time) == null) continue;
+        // Keep IDs for posts with an empty caption or unparseable time so
+        // media-only pages cannot truncate pagination.
 
-        final hasImage = message.querySelector('img') != null ||
+        final hasImage =
+            message.querySelector('.etme_widget_message_photo_wrap') != null ||
+            message.querySelector('.etme_widget_message_grouped_wrap') !=
+                null ||
             message.querySelector('.etme_widget_message_photo') != null ||
             message.querySelector('.etme_widget_message_video') != null;
 
@@ -313,14 +365,13 @@ class ReadChannelService {
         createdAt: DateTime.now(),
         messages: result,
       );
+      await _persistDiskCache();
 
       // cache را محدود نگه می‌داریم.
       if (_cache.length > 40) {
         final oldestKey = _cache.entries
             .reduce(
-              (a, b) => a.value.createdAt.isBefore(b.value.createdAt)
-                  ? a
-                  : b,
+              (a, b) => a.value.createdAt.isBefore(b.value.createdAt) ? a : b,
             )
             .key;
 
@@ -335,15 +386,85 @@ class ReadChannelService {
     }
   }
 
+  Future<void> _ensureDiskCacheLoaded() async {
+    _diskCacheLoad ??= _loadDiskCache();
+    await _diskCacheLoad;
+  }
+
+  Future<void> _loadDiskCache() async {
+    try {
+      final directory = await getApplicationSupportDirectory();
+      // v2 stores media-only posts so old v1 pages cannot truncate paging.
+      _diskCacheFile = File(
+        '${directory.path}${Platform.pathSeparator}eitaa_channel_pages_v2.json',
+      );
+      if (!await _diskCacheFile!.exists()) return;
+      final decoded = jsonDecode(await _diskCacheFile!.readAsString());
+      if (decoded is! Map<String, dynamic>) return;
+      final now = DateTime.now();
+      for (final entry in decoded.entries) {
+        if (entry.value is! Map) continue;
+        final value = Map<String, dynamic>.from(entry.value as Map);
+        final createdAt = DateTime.tryParse(
+          value['createdAt']?.toString() ?? '',
+        );
+        final rawMessages = value['messages'];
+        if (createdAt == null || rawMessages is! Map) continue;
+        final ttl = entry.key.contains('?before=')
+            ? _historyPageTtl
+            : _latestPageTtl;
+        if (now.difference(createdAt) > ttl) continue;
+        final messages = <int, List<String>>{};
+        for (final item in rawMessages.entries) {
+          final id = int.tryParse(item.key.toString());
+          if (id == null || item.value is! List) continue;
+          messages[id] = (item.value as List)
+              .map((part) => part.toString())
+              .toList();
+        }
+        _cache[entry.key] = _CachedResponse(
+          createdAt: createdAt,
+          messages: messages,
+        );
+      }
+    } catch (_) {
+      // A damaged or unavailable cache must not prevent fetching the channel.
+    }
+  }
+
+  Future<void> _persistDiskCache() async {
+    try {
+      final file = _diskCacheFile;
+      if (file == null) return;
+      final entries = _cache.entries.toList()
+        ..sort((a, b) => b.value.createdAt.compareTo(a.value.createdAt));
+      final bounded = entries.take(120);
+      final payload = <String, Object?>{
+        for (final entry in bounded)
+          entry.key: <String, Object?>{
+            'createdAt': entry.value.createdAt.toIso8601String(),
+            'messages': <String, List<String>>{
+              for (final post in entry.value.messages.entries)
+                post.key.toString(): post.value,
+            },
+          },
+      };
+      await file.writeAsString(jsonEncode(payload), flush: true);
+    } catch (_) {
+      // Cache persistence is best-effort; channel reading remains available.
+    }
+  }
+
   Future<void> _waitForRateLimit() async {
     final now = DateTime.now();
     final previous = _lastRequestAt;
 
     if (previous != null) {
       final elapsed = now.difference(previous);
-      final jitterMs = math.Random().nextInt(1200);
-      final targetGap =
-          _minRequestGap + Duration(milliseconds: jitterMs);
+      final randomDelay = Duration(
+        milliseconds: math.Random().nextInt(_maxRequestGap.inMilliseconds + 1),
+      );
+      final targetGap = randomDelay;
 
       if (elapsed < targetGap) {
         await Future.delayed(targetGap - elapsed);
@@ -358,9 +479,7 @@ class ReadChannelService {
 
     final seconds = int.tryParse(value ?? '');
     if (seconds != null) {
-      return Duration(
-        seconds: math.min(30, math.max(3, seconds)),
-      );
+      return Duration(seconds: math.min(30, math.max(3, seconds)));
     }
 
     // اگر Eitaa Retry-After نفرستاد، retry کوتاه و محدود.
@@ -372,8 +491,5 @@ class _CachedResponse {
   final DateTime createdAt;
   final Map<int, List<String>> messages;
 
-  const _CachedResponse({
-    required this.createdAt,
-    required this.messages,
-  });
+  const _CachedResponse({required this.createdAt, required this.messages});
 }
