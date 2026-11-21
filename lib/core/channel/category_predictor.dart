@@ -267,8 +267,15 @@ class CategoryPredictor {
         ' ',
       );
     }
-    return text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return _cleanTitleCharacters(text);
   }
+
+  /// Keeps Persian/Arabic-script letters and Persian/English digits only.
+  /// Replacing other characters with spaces avoids joining neighboring words.
+  String _cleanTitleCharacters(String value) => value
+      .replaceAll(RegExp(r'[^ءاآأإؤئابتثجچحخدذرزژسشصضطظعغفقکگلمنوهیۀةي۰-۹0-9\s]'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
 
   int _headlineScore(String text) {
     final words = text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
@@ -357,7 +364,7 @@ class CategoryPredictor {
 
   String cleanTitle(String rawTitle) {
     final extracted = extractHeadline(rawTitle);
-    if (extracted.isNotEmpty) return extracted;
+    if (extracted.isNotEmpty) return _cleanTitleCharacters(extracted);
     var text = rawTitle;
 
     // حذف آیدی‌ها
@@ -415,7 +422,7 @@ class CategoryPredictor {
     // حذف فاصله‌های اضافی
     text = text.replaceAll(RegExp(r'\s+'), ' ').trim();
 
-    return text;
+    return _cleanTitleCharacters(text);
   }
 
   DateTime? extractDateFromTitle(String line) {
