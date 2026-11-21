@@ -51,6 +51,11 @@ class _TitleSelectDialogState extends State<TitleSelectDialog> {
         .where((title) => title.contains(search))
         .toList();
     final hasPosts = widget.posts.isNotEmpty;
+    final visibleCount = hasPosts ? filteredPosts.length : filteredTitles.length;
+    final totalCount = hasPosts ? widget.posts.length : widget.titles.length;
+    final dialogHeight = (MediaQuery.of(context).size.height * 0.75)
+        .clamp(400.0, 700.0)
+        .toDouble();
 
     return ContentDialog(
       title: const Text("انتخاب عنوان گروه"),
@@ -58,7 +63,7 @@ class _TitleSelectDialogState extends State<TitleSelectDialog> {
       content: SizedBox(
         width: 500,
 
-        height: 400,
+        height: dialogHeight,
 
         child: Column(
           children: [
@@ -82,6 +87,13 @@ class _TitleSelectDialogState extends State<TitleSelectDialog> {
               child: Text(
                 'تعداد عنوان‌های استخراج‌شده: ${hasPosts ? widget.posts.length : widget.titles.length}',
                 style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Text(
+                'نمایش $visibleCount از $totalCount عنوان',
+                style: const TextStyle(fontSize: 12),
               ),
             ),
 
